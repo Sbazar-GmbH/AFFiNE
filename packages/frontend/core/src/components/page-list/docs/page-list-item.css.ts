@@ -8,6 +8,7 @@ export const root = style({
   flexShrink: 0,
   width: '100%',
   alignItems: 'stretch',
+  contain: 'strict',
   transition: 'background-color 0.2s, opacity 0.2s',
   ':hover': {
     backgroundColor: cssVar('hoverColor'),
@@ -71,9 +72,9 @@ globalStyle(`${root} > :last-child`, {
   paddingRight: '8px',
 });
 export const titleIconsWrapper = style({
-  padding: '0 5px',
   display: 'flex',
   alignItems: 'center',
+  justifyContent: 'center',
   gap: '10px',
 });
 export const selectionCell = style({

@@ -1,6 +1,12 @@
 import { test } from '@affine-test/kit/playwright';
 import { clickEdgelessModeButton } from '@affine-test/kit/utils/editor';
-import { withCtrlOrMeta } from '@affine-test/kit/utils/keyboard';
+import {
+  copyByKeyboard,
+  pasteByKeyboard,
+  selectAllByKeyboard,
+  withCtrlOrMeta,
+  writeTextToClipboard,
+} from '@affine-test/kit/utils/keyboard';
 import { openHomePage } from '@affine-test/kit/utils/load-page';
 import {
   clickNewPageButton,
@@ -137,7 +143,7 @@ test('Create a new page without keyword', async ({ page }) => {
   await waitForEditorLoad(page);
   await clickNewPageButton(page);
   await openQuickSearchByShortcut(page);
-  const addNewPage = page.locator('[cmdk-item] >> text=New Page');
+  const addNewPage = page.getByText('New page', { exact: true });
   await addNewPage.click();
   await page.waitForTimeout(300);
   await assertTitle(page, '');
@@ -242,7 +248,7 @@ test('Focus title after creating a new page', async ({ page }) => {
   await waitForEditorLoad(page);
   await clickNewPageButton(page);
   await openQuickSearchByShortcut(page);
-  const addNewPage = page.locator('[cmdk-item] >> text=New Page');
+  const addNewPage = page.getByText('New page', { exact: true });
   await addNewPage.click();
   await titleIsFocused(page);
 });
@@ -275,7 +281,7 @@ test('assert the recent browse pages are on the recent list', async ({
 
   // create second page
   await openQuickSearchByShortcut(page);
-  const addNewPage = page.locator('[cmdk-item] >> text=New Page');
+  const addNewPage = page.getByText('New page', { exact: true });
   await addNewPage.click();
   await waitForEditorLoad(page);
   {
@@ -315,7 +321,7 @@ test('assert the recent browse pages are on the recent list', async ({
   await waitForEditorLoad(page);
   await openQuickSearchByShortcut(page);
   {
-    const addNewPage = page.locator('[cmdk-item] >> text=New Page');
+    const addNewPage = page.getByText('New page', { exact: true });
     await addNewPage.click();
   }
   await waitForEditorLoad(page);
@@ -358,13 +364,12 @@ test('can use cmdk to delete page and restore it', async ({ page }) => {
   await getBlockSuiteEditorTitle(page).fill('this is a new page to delete');
   await openQuickSearchByShortcut(page);
   await keyboardDownAndSelect(page, 'Move to trash');
-  await page.getByTestId('confirm-delete-page').click();
+  await page.getByTestId('confirm-modal-confirm').click();
   const restoreButton = page.getByTestId('page-restore-button');
   await expect(restoreButton).toBeVisible();
   await page.waitForTimeout(100);
   await openQuickSearchByShortcut(page);
   expect(await commandsIsVisible(page, 'Move to trash')).toBe(false);
-  expect(await commandsIsVisible(page, 'Export to PDF')).toBe(false);
   expect(await commandsIsVisible(page, 'Restore from trash')).toBe(true);
   await keyboardDownAndSelect(page, 'Restore from trash');
   await expect(restoreButton).not.toBeVisible();
@@ -477,7 +482,7 @@ test('can use @ to open quick search to search for doc and insert into canvas', 
   await insertInputText(page, url);
 
   // expect the default page to be selected
-  await expect(page.locator('[cmdk-group-items] [cmdk-item]')).toHaveCount(3);
+  await expect(page.locator('[cmdk-group-items] [cmdk-item]')).toHaveCount(5);
 
   // press enter to insert the page to canvas
   await page.keyboard.press('Enter');
@@ -511,25 +516,7 @@ test('can paste a doc link to create link reference', async ({ page }) => {
   await page.keyboard.press('Enter');
 
   // paste the url
-  await page.evaluate(
-    async ([url]) => {
-      const clipData = {
-        'text/plain': url,
-      };
-      const e = new ClipboardEvent('paste', {
-        clipboardData: new DataTransfer(),
-      });
-      Object.defineProperty(e, 'target', {
-        writable: false,
-        value: document,
-      });
-      Object.entries(clipData).forEach(([key, value]) => {
-        e.clipboardData?.setData(key, value);
-      });
-      document.dispatchEvent(e);
-    },
-    [url]
-  );
+  await writeTextToClipboard(page, url);
 
   // check the link reference
   await page.waitForTimeout(500);
@@ -602,4 +589,31 @@ test('can use slash menu to insert an external link', async ({ page }) => {
   await expect(page.locator('.affine-bookmark-content-url')).toContainText(
     link
   );
+});
+
+test('Paste content with keyboard', async ({ page }) => {
+  await openHomePage(page);
+  await waitForEditorLoad(page);
+  await clickNewPageButton(page, 'Test');
+
+  // goto main content
+  await page.keyboard.press('Enter');
+
+  // input hello world to editor
+  await page.keyboard.type('hello world', {
+    delay: 50,
+  });
+
+  await selectAllByKeyboard(page);
+  await copyByKeyboard(page);
+
+  const quickSearchButton = page.locator(
+    '[data-testid=slider-bar-quick-search-button]'
+  );
+  await quickSearchButton.click();
+  const quickSearch = page.locator('[data-testid=cmdk-quick-search]');
+  await expect(quickSearch).toBeVisible();
+
+  await pasteByKeyboard(page);
+  await expect(page.locator('[cmdk-input]')).toHaveValue('hello world');
 });

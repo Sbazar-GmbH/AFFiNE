@@ -1,12 +1,15 @@
-import { IconButton, toast } from '@affine/component';
+import { IconButton, notify } from '@affine/component';
 import {
   MenuSeparator,
+  MenuSub,
   MobileMenu,
   MobileMenuItem,
 } from '@affine/component/ui/menu';
 import { useFavorite } from '@affine/core/components/blocksuite/block-suite-header/favorite';
 import { IsFavoriteIcon } from '@affine/core/components/pure/icons';
-import { EditorOutlinePanel } from '@affine/core/desktop/pages/workspace/detail-page/tabs/outline';
+import { DocInfoSheet } from '@affine/core/mobile/components';
+import { MobileTocMenu } from '@affine/core/mobile/components/toc-menu';
+import { DocService } from '@affine/core/modules/doc';
 import { EditorService } from '@affine/core/modules/editor';
 import { ViewService } from '@affine/core/modules/workbench/services/view';
 import { preventDefault } from '@affine/core/utils';
@@ -19,11 +22,13 @@ import {
   PageIcon,
   TocIcon,
 } from '@blocksuite/icons/rc';
-import { DocService, useLiveData, useService } from '@toeverything/infra';
+import { useLiveData, useService } from '@toeverything/infra';
 import { useCallback, useEffect, useState } from 'react';
 
+import { JournalConflictsMenuItem } from './menu/journal-conflicts';
+import { JournalTodayActivityMenuItem } from './menu/journal-today-activity';
+import { EditorModeSwitch } from './menu/mode-switch';
 import * as styles from './page-header-more-button.css';
-import { DocInfoSheet } from './sheets/doc-info';
 
 export const PageHeaderMenuButton = () => {
   const t = useI18n();
@@ -39,21 +44,30 @@ export const PageHeaderMenuButton = () => {
   const isInTrash = useLiveData(
     editorService.editor.doc.meta$.map(meta => meta.trash)
   );
-  const currentMode = useLiveData(editorService.editor.mode$);
+  const primaryMode = useLiveData(editorService.editor.doc.primaryMode$);
+  const title = useLiveData(editorService.editor.doc.title$);
 
   const { favorite, toggleFavorite } = useFavorite(docId);
 
   const handleSwitchMode = useCallback(() => {
-    editorService.editor.toggleMode();
+    const mode = primaryMode === 'page' ? 'edgeless' : 'page';
+    // TODO(@JimmFly): remove setMode when there has view mode switch
+    editorService.editor.setMode(mode);
+    editorService.editor.doc.setPrimaryMode(mode);
     track.$.header.docOptions.switchPageMode({
-      mode: currentMode === 'page' ? 'edgeless' : 'page',
+      mode,
     });
-    toast(
-      currentMode === 'page'
-        ? t['com.affine.toastMessage.edgelessMode']()
-        : t['com.affine.toastMessage.pageMode']()
-    );
-  }, [currentMode, editorService, t]);
+    notify.success({
+      title:
+        primaryMode === 'page'
+          ? t['com.affine.toastMessage.defaultMode.edgeless.title']()
+          : t['com.affine.toastMessage.defaultMode.page.title'](),
+      message:
+        primaryMode === 'page'
+          ? t['com.affine.toastMessage.defaultMode.edgeless.message']()
+          : t['com.affine.toastMessage.defaultMode.page.message'](),
+    });
+  }, [primaryMode, editorService, t]);
 
   const handleMenuOpenChange = useCallback((open: boolean) => {
     if (open) {
@@ -74,15 +88,16 @@ export const PageHeaderMenuButton = () => {
 
   const EditMenu = (
     <>
+      <EditorModeSwitch />
+      <JournalTodayActivityMenuItem suffix={<MenuSeparator />} />
       <MobileMenuItem
-        prefixIcon={currentMode === 'page' ? <EdgelessIcon /> : <PageIcon />}
+        prefixIcon={primaryMode === 'page' ? <EdgelessIcon /> : <PageIcon />}
         data-testid="editor-option-menu-mode-switch"
         onSelect={handleSwitchMode}
       >
-        {t['Convert to ']()}
-        {currentMode === 'page'
-          ? t['com.affine.pageMode.edgeless']()
-          : t['com.affine.pageMode.page']()}
+        {primaryMode === 'page'
+          ? t['com.affine.editorDefaultMode.edgeless']()
+          : t['com.affine.editorDefaultMode.page']()}
       </MobileMenuItem>
       <MobileMenuItem
         data-testid="editor-option-menu-favorite"
@@ -94,18 +109,21 @@ export const PageHeaderMenuButton = () => {
           : t['com.affine.favoritePageOperation.add']()}
       </MobileMenuItem>
       <MenuSeparator />
-      <MobileMenu items={<DocInfoSheet docId={docId} />}>
-        <MobileMenuItem
-          prefixIcon={<InformationIcon />}
-          onClick={preventDefault}
-        >
-          <span>{t['com.affine.page-properties.page-info.view']()}</span>
-        </MobileMenuItem>
-      </MobileMenu>
+      <MenuSub
+        triggerOptions={{
+          prefixIcon: <InformationIcon />,
+          onClick: preventDefault,
+        }}
+        title={title ?? t['unnamed']()}
+        items={<DocInfoSheet docId={docId} />}
+      >
+        <span>{t['com.affine.page-properties.page-info.view']()}</span>
+      </MenuSub>
       <MobileMenu
+        title={t['com.affine.header.menu.toc']()}
         items={
           <div className={styles.outlinePanel}>
-            <EditorOutlinePanel editor={editorContainer} />
+            <MobileTocMenu editor={editorContainer} />
           </div>
         }
       >
@@ -113,6 +131,7 @@ export const PageHeaderMenuButton = () => {
           <span>{t['com.affine.header.option.view-toc']()}</span>
         </MobileMenuItem>
       </MobileMenu>
+      <JournalConflictsMenuItem />
     </>
   );
   if (isInTrash) {

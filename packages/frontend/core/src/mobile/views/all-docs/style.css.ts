@@ -3,13 +3,13 @@ import { style } from '@vanilla-extract/css';
 
 const basicHeader = style({
   width: '100%',
-  height: 56,
+  height: 44,
 });
 export const header = style({
   width: '100%',
   position: 'fixed',
   top: 0,
-  backgroundColor: cssVarV2('layer/background/secondary'),
+  backgroundColor: cssVarV2('layer/background/mobile/primary'),
   zIndex: 1,
 });
 export const headerSpace = style([basicHeader]);
@@ -25,7 +25,7 @@ export const headerContent = style([
 ]);
 
 export const tabs = style({
-  height: 56,
+  height: 44,
   gap: 16,
   display: 'flex',
   alignItems: 'center',

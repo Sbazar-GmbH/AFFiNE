@@ -1,7 +1,8 @@
-import { app, BrowserWindow, WebContentsView } from 'electron';
+import { BrowserWindow, WebContentsView } from 'electron';
 
 import { AFFINE_EVENT_CHANNEL_NAME } from '../shared/type';
 import { applicationMenuEvents } from './application-menu';
+import { beforeAppQuit } from './cleanup';
 import { logger } from './logger';
 import { sharedStorageEvents } from './shared-storage';
 import { uiEvents } from './ui/events';
@@ -56,12 +57,10 @@ export function registerEvents() {
       unsubs.push(unsubscribe);
     }
   }
-  app.on('before-quit', () => {
-    // subscription on quit sometimes crashes the app
-    try {
-      unsubs.forEach(unsub => unsub());
-    } catch (err) {
-      logger.error('unsubscribe error', err);
-    }
+
+  unsubs.forEach(unsub => {
+    beforeAppQuit(() => {
+      unsub();
+    });
   });
 }

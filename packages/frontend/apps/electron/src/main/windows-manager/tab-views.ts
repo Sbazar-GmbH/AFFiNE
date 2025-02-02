@@ -2,8 +2,9 @@ import { join } from 'node:path';
 
 import {
   app,
-  type CookiesSetDetails,
-  session,
+  BrowserWindow,
+  Menu,
+  MenuItem,
   type View,
   type WebContents,
   WebContentsView,
@@ -23,21 +24,21 @@ import {
 } from 'rxjs';
 
 import { isMacOS } from '../../shared/utils';
-import { CLOUD_BASE_URL, isDev } from '../config';
+import { beforeAppQuit } from '../cleanup';
 import { mainWindowOrigin, shellViewUrl } from '../constants';
 import { ensureHelperProcess } from '../helper-process';
 import { logger } from '../logger';
-import { globalStateStorage } from '../shared-storage/storage';
-import { parseCookie } from '../utils';
-import { getCustomThemeWindow } from './custom-theme-window';
-import { getMainWindow, MainWindowManager } from './main-window';
 import {
+  SpellCheckStateKey,
+  SpellCheckStateSchema,
   TabViewsMetaKey,
   type TabViewsMetaSchema,
   tabViewsMetaSchema,
   type WorkbenchMeta,
   type WorkbenchViewMeta,
-} from './tab-views-meta-schema';
+} from '../shared-state-schema';
+import { globalStateStorage } from '../shared-storage/storage';
+import { getMainWindow, MainWindowManager } from './main-window';
 
 async function getAdditionalArguments() {
   const { getExposedMeta } = await import('../exposed');
@@ -75,6 +76,10 @@ const TabViewsMetaState = {
     };
   },
 };
+
+const spellCheckSettings = SpellCheckStateSchema.parse(
+  globalStateStorage.get(SpellCheckStateKey) ?? {}
+);
 
 type AddTabAction = {
   type: 'add-tab';
@@ -165,6 +170,7 @@ export class WebContentViewsManager {
           ready: ready.has(w.id),
           activeViewIndex: w.activeViewIndex,
           views: w.views,
+          basename: w.basename,
         };
       });
     }),
@@ -272,7 +278,14 @@ export class WebContentViewsManager {
     }
   };
 
-  getViewIdFromWebContentsId = (id: number) => {
+  setTabUIUnready = (tabId: string) => {
+    this.appTabsUIReady$.next(
+      new Set([...this.appTabsUIReady$.value].filter(key => key !== tabId))
+    );
+    this.reorderViews();
+  };
+
+  getWorkbenchIdFromWebContentsId = (id: number) => {
     return Array.from(this.tabViewsMap.entries()).find(
       ([, view]) => view.webContents.id === id
     )?.[0];
@@ -305,7 +318,7 @@ export class WebContentViewsManager {
 
   updateWorkbenchViewMeta = (
     workbenchId: string,
-    viewId: string,
+    viewId: string | number,
     patch: Partial<WorkbenchViewMeta>
   ) => {
     const workbench = this.tabViewsMeta.workbenches.find(
@@ -315,7 +328,10 @@ export class WebContentViewsManager {
       return;
     }
     const views = workbench.views;
-    const viewIndex = views.findIndex(v => v.id === viewId);
+    const viewIndex =
+      typeof viewId === 'string'
+        ? views.findIndex(v => v.id === viewId)
+        : viewId;
     if (viewIndex === -1) {
       return;
     }
@@ -705,23 +721,6 @@ export class WebContentViewsManager {
         // add shell view
         this.createAndAddView('shell').catch(err => logger.error(err));
         (async () => {
-          const updateCookies = () => {
-            session.defaultSession.cookies
-              .get({
-                url: CLOUD_BASE_URL,
-              })
-              .then(cookies => {
-                this.cookies = cookies;
-              })
-              .catch(err => {
-                logger.error('failed to get cookies', err);
-              });
-          };
-          updateCookies();
-          session.defaultSession.cookies.on('changed', () => {
-            updateCookies();
-          });
-
           if (this.tabViewsMeta.workbenches.length === 0) {
             // create a default view (e.g., on first launch)
             await this.addTab();
@@ -733,20 +732,38 @@ export class WebContentViewsManager {
       })
     );
 
-    app.on('before-quit', () => {
-      disposables.forEach(d => d.unsubscribe());
+    disposables.forEach(d => {
+      beforeAppQuit(() => {
+        d.unsubscribe();
+      });
     });
-  };
 
-  setCookie = async (cookiesSetDetails: CookiesSetDetails) => {
-    const views = this.allViews;
-    if (!views) {
-      return;
-    }
-    logger.info('setting cookie to main window view(s)', cookiesSetDetails);
-    for (const view of views) {
-      await view.webContents.session.cookies.set(cookiesSetDetails);
-    }
+    const focusActiveView = () => {
+      if (
+        !this.activeWorkbenchView ||
+        this.activeWorkbenchView.webContents.isFocused()
+      ) {
+        return;
+      }
+      this.activeWorkbenchView?.webContents.focus();
+      setTimeout(() => {
+        focusActiveView();
+      }, 100);
+    };
+
+    app.on('browser-window-focus', () => {
+      focusActiveView();
+    });
+
+    combineLatest([
+      this.activeWorkbenchId$,
+      this.mainWindowManager.mainWindow$,
+    ]).subscribe(([_, window]) => {
+      // makes sure the active view is always focused
+      if (window?.isFocused()) {
+        focusActiveView();
+      }
+    });
   };
 
   getViewById = (id: string) => {
@@ -792,12 +809,49 @@ export class WebContentViewsManager {
         transparent: true,
         contextIsolation: true,
         sandbox: false,
-        spellcheck: false, // TODO(@pengx17): enable?
+        spellcheck: spellCheckSettings.enabled,
         preload: join(__dirname, './preload.js'), // this points to the bundled preload module
         // serialize exposed meta that to be used in preload
         additionalArguments: additionalArguments,
       },
     });
+
+    if (spellCheckSettings.enabled) {
+      view.webContents.on('context-menu', (_event, params) => {
+        const shouldShow =
+          params.misspelledWord && params.dictionarySuggestions.length > 0;
+
+        if (!shouldShow) {
+          return;
+        }
+        const menu = new Menu();
+
+        // Add each spelling suggestion
+        for (const suggestion of params.dictionarySuggestions) {
+          menu.append(
+            new MenuItem({
+              label: suggestion,
+              click: () => view.webContents.replaceMisspelling(suggestion),
+            })
+          );
+        }
+
+        // Allow users to add the misspelled word to the dictionary
+        if (params.misspelledWord) {
+          menu.append(
+            new MenuItem({
+              label: 'Add to dictionary', // TODO: i18n
+              click: () =>
+                view.webContents.session.addWordToSpellCheckerDictionary(
+                  params.misspelledWord
+                ),
+            })
+          );
+        }
+
+        menu.popup();
+      });
+    }
 
     this.webViewsMap$.next(this.tabViewsMap.set(viewId, view));
     let unsub = () => {};
@@ -806,12 +860,6 @@ export class WebContentViewsManager {
     if (type !== 'shell') {
       view.webContents.on('did-finish-load', () => {
         unsub = helperProcessManager.connectRenderer(view.webContents);
-      });
-      view.webContents.on('will-navigate', () => {
-        // means the view is reloaded
-        this.appTabsUIReady$.next(
-          new Set([...this.appTabsUIReady$.value].filter(key => key !== viewId))
-        );
       });
     } else {
       view.webContents.on('focus', () => {
@@ -822,9 +870,6 @@ export class WebContentViewsManager {
       });
 
       view.webContents.loadURL(shellViewUrl).catch(err => logger.error(err));
-      if (isDev) {
-        view.webContents.openDevTools();
-      }
     }
 
     view.webContents.on('destroyed', () => {
@@ -845,6 +890,9 @@ export class WebContentViewsManager {
 
     view.webContents.on('did-finish-load', () => {
       this.resizeView(view);
+      if (process.env.SKIP_ONBOARDING) {
+        this.skipOnboarding(view).catch(err => logger.error(err));
+      }
     });
 
     // reorder will add to main window when loaded
@@ -853,30 +901,15 @@ export class WebContentViewsManager {
     logger.info(`view ${viewId} created in ${performance.now() - start}ms`);
     return view;
   };
-}
 
-export async function setCookie(cookie: CookiesSetDetails): Promise<void>;
-export async function setCookie(origin: string, cookie: string): Promise<void>;
-
-export async function setCookie(
-  arg0: CookiesSetDetails | string,
-  arg1?: string
-) {
-  const details =
-    typeof arg1 === 'string' && typeof arg0 === 'string'
-      ? parseCookie(arg0, arg1)
-      : arg0;
-
-  logger.info('setting cookie to main window', details);
-
-  if (typeof details !== 'object') {
-    throw new Error('invalid cookie details');
+  private async skipOnboarding(view: WebContentsView) {
+    await view.webContents.executeJavaScript(`
+    window.localStorage.setItem('app_config', '{"onBoarding":false}');
+    window.localStorage.setItem('dismissAiOnboarding', 'true');
+    window.localStorage.setItem('dismissAiOnboardingEdgeless', 'true');
+    window.localStorage.setItem('dismissAiOnboardingLocal', 'true');
+    `);
   }
-  return WebContentViewsManager.instance.setCookie(details);
-}
-
-export function getCookies() {
-  return WebContentViewsManager.instance.cookies;
 }
 
 // there is no proper way to listen to webContents resize event
@@ -928,6 +961,7 @@ export const onTabsStatusChange = (
       pinned: boolean;
       activeViewIndex: number;
       views: WorkbenchViewMeta[];
+      basename: string;
     }[]
   ) => void
 ) => {
@@ -949,7 +983,7 @@ export const updateWorkbenchMeta = (
 
 export const updateWorkbenchViewMeta = (
   workbenchId: string,
-  viewId: string,
+  viewId: string | number,
   meta: Partial<WorkbenchViewMeta>
 ) => {
   WebContentViewsManager.instance.updateWorkbenchViewMeta(
@@ -962,6 +996,24 @@ export const updateWorkbenchViewMeta = (
 export const getWorkbenchMeta = (id: string) => {
   return TabViewsMetaState.value.workbenches.find(w => w.id === id);
 };
+
+export const updateActiveViewMeta = (
+  wc: WebContents,
+  meta: Partial<WorkbenchViewMeta>
+) => {
+  const workbenchId =
+    WebContentViewsManager.instance.getWorkbenchIdFromWebContentsId(wc.id);
+  const workbench = workbenchId ? getWorkbenchMeta(workbenchId) : undefined;
+
+  if (workbench && workbenchId) {
+    return WebContentViewsManager.instance.updateWorkbenchViewMeta(
+      workbenchId,
+      workbench.activeViewIndex,
+      meta
+    );
+  }
+};
+
 export const getTabViewsMeta = () => TabViewsMetaState.value;
 export const isActiveTab = (wc: WebContents) => {
   return (
@@ -969,7 +1021,35 @@ export const isActiveTab = (wc: WebContents) => {
     WebContentViewsManager.instance.activeWorkbenchView?.webContents.id
   );
 };
+
+// parse the full pathname to basename and pathname
+// eg: /workspace/xxx/yyy => { basename: '/workspace/xxx', pathname: '/yyy' }
+export const parseFullPathname = (url: string) => {
+  const urlObj = new URL(url);
+  const basename = urlObj.pathname.match(/\/workspace\/[^/]+/g)?.[0] ?? '/';
+  return {
+    basename,
+    pathname: urlObj.pathname.slice(basename.length),
+    search: urlObj.search,
+    hash: urlObj.hash,
+  };
+};
+
 export const addTab = WebContentViewsManager.instance.addTab;
+export const addTabWithUrl = (url: string) => {
+  const { basename, pathname, search, hash } = parseFullPathname(url);
+  return addTab({
+    basename,
+    view: {
+      path: { pathname, search, hash },
+    },
+  });
+};
+
+export const loadUrlInActiveTab = async (_url: string) => {
+  // todo: implement
+  throw new Error('loadUrlInActiveTab not implemented');
+};
 export const showTab = WebContentViewsManager.instance.showTab;
 export const closeTab = WebContentViewsManager.instance.closeTab;
 export const undoCloseTab = WebContentViewsManager.instance.undoCloseTab;
@@ -1000,32 +1080,30 @@ export const onActiveTabChanged = (fn: (tabId: string) => void) => {
 
 export const showDevTools = (id?: string) => {
   // use focusedWindow?
-  // const focusedWindow = BrowserWindow.getFocusedWindow()
-
-  // workaround for opening devtools for theme-editor window
-  // there should be some strategy like windows manager, so we can know which window is active
-  getCustomThemeWindow()
-    .then(w => {
-      if (w && w.isFocused()) {
-        w.webContents.openDevTools();
-      } else {
-        const view = id
-          ? WebContentViewsManager.instance.getViewById(id)
-          : WebContentViewsManager.instance.activeWorkbenchView;
-        if (view) {
-          view.webContents.openDevTools();
-        }
-      }
-    })
-    .catch(console.error);
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  // check if focused window is main window
+  const mainWindow = WebContentViewsManager.instance.mainWindow;
+  if (focusedWindow && focusedWindow.id !== mainWindow?.id) {
+    focusedWindow.webContents.openDevTools();
+  } else {
+    const view = id
+      ? WebContentViewsManager.instance.getViewById(id)
+      : WebContentViewsManager.instance.activeWorkbenchView;
+    if (view) {
+      view.webContents.openDevTools();
+    }
+  }
 };
 
-export const pingAppLayoutReady = (wc: WebContents) => {
-  const viewId = WebContentViewsManager.instance.getViewIdFromWebContentsId(
-    wc.id
-  );
+export const pingAppLayoutReady = (wc: WebContents, ready: boolean) => {
+  const viewId =
+    WebContentViewsManager.instance.getWorkbenchIdFromWebContentsId(wc.id);
   if (viewId) {
-    WebContentViewsManager.instance.setTabUIReady(viewId);
+    if (ready) {
+      WebContentViewsManager.instance.setTabUIReady(viewId);
+    } else {
+      WebContentViewsManager.instance.setTabUIUnready(viewId);
+    }
   }
 };
 

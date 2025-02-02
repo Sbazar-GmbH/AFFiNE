@@ -1,8 +1,3 @@
-import './chat-block-input';
-import './date-time';
-import '../_common/components/chat-action-list';
-import '../_common/components/copy-more';
-
 import { type EditorHost } from '@blocksuite/affine/block-std';
 import {
   type AIError,
@@ -10,19 +5,19 @@ import {
   ConnectorMode,
   DocModeProvider,
   type EdgelessRootService,
+  NotificationProvider,
   TelemetryProvider,
 } from '@blocksuite/affine/blocks';
-import { NotificationProvider } from '@blocksuite/affine/blocks';
-import {
-  type AIChatBlockModel,
-  type ChatMessage,
-  ChatMessagesSchema,
-} from '@blocksuite/affine/presets';
 import { html, LitElement, nothing } from 'lit';
 import { property, query, state } from 'lit/decorators.js';
 import { classMap } from 'lit/directives/class-map.js';
 import { repeat } from 'lit/directives/repeat.js';
 
+import {
+  type AIChatBlockModel,
+  type ChatMessage,
+  ChatMessagesSchema,
+} from '../../../blocks';
 import {
   ChatBlockPeekViewActions,
   constructUserInfoWithMessages,
@@ -160,7 +155,7 @@ export class AIChatBlockPeekView extends LitElement {
     const { doc } = this.host;
     // create a new AI chat block
     const surfaceBlock = doc
-      .getBlocks()
+      .getStore()
       .find(block => block.flavour === 'affine:surface');
     if (!surfaceBlock) {
       return;
@@ -179,7 +174,7 @@ export class AIChatBlockPeekView extends LitElement {
 
     const edgelessService = this._rootService as EdgelessRootService;
     const bound = calcChildBound(this.parentModel, edgelessService);
-    const aiChatBlockId = edgelessService.addBlock(
+    const aiChatBlockId = edgelessService.crud.addBlock(
       'affine:embed-ai-chat' as keyof BlockSuite.BlockModels,
       {
         xywh: bound.serialize(),
@@ -198,7 +193,7 @@ export class AIChatBlockPeekView extends LitElement {
     this.updateContext({ currentChatBlockId: aiChatBlockId });
 
     // Connect the parent chat block to the AI chat block
-    edgelessService.addElement(CanvasElementType.CONNECTOR, {
+    edgelessService.crud.addElement(CanvasElementType.CONNECTOR, {
       mode: ConnectorMode.Curve,
       controllers: [],
       source: { id: this.parentChatBlockId },
@@ -274,7 +269,7 @@ export class AIChatBlockPeekView extends LitElement {
     ) {
       const { doc } = this.host;
       if (currentSessionId) {
-        await AIProvider.histories?.cleanup(doc.collection.id, doc.id, [
+        await AIProvider.histories?.cleanup(doc.workspace.id, doc.id, [
           currentSessionId,
         ]);
       }
@@ -328,7 +323,7 @@ export class AIChatBlockPeekView extends LitElement {
         sessionId: currentSessionId,
         retry: true,
         docId: doc.id,
-        workspaceId: doc.collection.id,
+        workspaceId: doc.workspace.id,
         host: this.host,
         stream: true,
         signal: abortController.signal,

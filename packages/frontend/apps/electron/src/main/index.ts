@@ -33,6 +33,7 @@ if (overrideSession) {
   app.setPath('sessionData', userDataPath);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 if (require('electron-squirrel-startup')) app.quit();
 
 if (process.env.SKIP_ONBOARDING) {
@@ -47,7 +48,9 @@ if (process.env.SKIP_ONBOARDING) {
  */
 const isSingleInstance = app.requestSingleInstanceLock();
 if (!isSingleInstance) {
-  logger.info('Another instance is running, exiting...');
+  logger.info(
+    'Another instance is running or responding deep link, exiting...'
+  );
   app.quit();
   process.exit(0);
 }

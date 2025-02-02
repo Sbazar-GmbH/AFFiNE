@@ -1,11 +1,19 @@
-import type { DocMode } from '@blocksuite/affine/blocks';
+import { FeatureFlagService } from '@affine/core/modules/feature-flag';
+import {
+  appendParagraphCommand,
+  type DocMode,
+  focusBlockEnd,
+  getLastNoteBlock,
+} from '@blocksuite/affine/blocks';
+import { Slot } from '@blocksuite/affine/global/utils';
 import type {
   AffineEditorContainer,
   DocTitle,
   EdgelessEditor,
   PageEditor,
 } from '@blocksuite/affine/presets';
-import { type Doc, Slot } from '@blocksuite/affine/store';
+import { type Store } from '@blocksuite/affine/store';
+import { useLiveData, useService } from '@toeverything/infra';
 import clsx from 'clsx';
 import type React from 'react';
 import {
@@ -17,14 +25,16 @@ import {
   useRef,
 } from 'react';
 
+import type { DefaultOpenProperty } from '../../doc-properties';
 import { BlocksuiteDocEditor, BlocksuiteEdgelessEditor } from './lit-adaper';
 import * as styles from './styles.css';
 
 interface BlocksuiteEditorContainerProps {
-  page: Doc;
+  page: Store;
   mode: DocMode;
   shared?: boolean;
   className?: string;
+  defaultOpenProperty?: DefaultOpenProperty;
   style?: React.CSSProperties;
 }
 
@@ -39,13 +49,15 @@ export const BlocksuiteEditorContainer = forwardRef<
   AffineEditorContainer,
   BlocksuiteEditorContainerProps
 >(function AffineEditorContainer(
-  { page, mode, className, style, shared },
+  { page, mode, className, style, shared, defaultOpenProperty },
   ref
 ) {
   const rootRef = useRef<HTMLDivElement>(null);
   const docRef = useRef<PageEditor>(null);
   const docTitleRef = useRef<DocTitle>(null);
   const edgelessRef = useRef<EdgelessEditor>(null);
+  const featureFlags = useService(FeatureFlagService).flags;
+  const enableEditorRTL = useLiveData(featureFlags.enable_editor_rtl.$);
 
   const slots: BlocksuiteEditorContainerRef['slots'] = useMemo(() => {
     return {
@@ -92,6 +104,9 @@ export const BlocksuiteEditorContainer = forwardRef<
       get origin() {
         return rootRef.current;
       },
+      get std() {
+        return mode === 'page' ? docRef.current?.std : edgelessRef.current?.std;
+      },
     };
 
     const proxy = new Proxy(api, {
@@ -126,15 +141,33 @@ export const BlocksuiteEditorContainer = forwardRef<
 
   const handleClickPageModeBlank = useCallback(() => {
     if (shared || page.readonly) return;
-    affineEditorContainerProxy.host?.std.command.exec(
-      'appendParagraph' as never,
-      {}
-    );
+    const std = affineEditorContainerProxy.host?.std;
+    if (!std) {
+      return;
+    }
+    const note = getLastNoteBlock(page);
+    if (note) {
+      const lastBlock = note.lastChild();
+      if (
+        lastBlock &&
+        lastBlock.flavour === 'affine:paragraph' &&
+        lastBlock.text?.length === 0
+      ) {
+        const focusBlock = std.view.getBlock(lastBlock.id) ?? undefined;
+        std.command.exec(focusBlockEnd, {
+          focusBlock,
+        });
+        return;
+      }
+    }
+
+    std.command.exec(appendParagraphCommand);
   }, [affineEditorContainerProxy, page, shared]);
 
   return (
     <div
       data-testid={`editor-${page.id}`}
+      dir={enableEditorRTL ? 'rtl' : 'ltr'}
       className={clsx(
         `editor-wrapper ${mode}-mode`,
         styles.docEditorRoot,
@@ -151,6 +184,7 @@ export const BlocksuiteEditorContainer = forwardRef<
           ref={docRef}
           titleRef={docTitleRef}
           onClickBlank={handleClickPageModeBlank}
+          defaultOpenProperty={defaultOpenProperty}
         />
       ) : (
         <BlocksuiteEdgelessEditor

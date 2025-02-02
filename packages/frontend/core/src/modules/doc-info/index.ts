@@ -1,10 +1,14 @@
-import { type Framework, WorkspaceScope } from '@toeverything/infra';
+import { type Framework } from '@toeverything/infra';
 
-import { DocInfoModal } from './entities/modal';
-import { DocInfoService } from './services/doc-info';
+import { DocsService } from '../doc/services/docs';
+import { DocsSearchService } from '../docs-search';
+import { WorkspaceScope } from '../workspace';
+import { DocDatabaseBacklinksService } from './services/doc-database-backlinks';
 
-export { DocInfoService };
+export { DocDatabaseBacklinkInfo } from './views/database-properties/doc-database-backlink-info';
 
 export function configureDocInfoModule(framework: Framework) {
-  framework.scope(WorkspaceScope).service(DocInfoService).entity(DocInfoModal);
+  framework
+    .scope(WorkspaceScope)
+    .service(DocDatabaseBacklinksService, [DocsService, DocsSearchService]);
 }

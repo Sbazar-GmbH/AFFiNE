@@ -16,31 +16,13 @@ import { openHomePage } from '@affine-test/kit/utils/load-page';
 import {
   clickNewPageButton,
   clickPageMoreActions,
+  getAllPage,
   getBlockSuiteEditorTitle,
   waitForAllPagesLoad,
   waitForEditorLoad,
 } from '@affine-test/kit/utils/page-logic';
 import { clickSideBarAllPageButton } from '@affine-test/kit/utils/sidebar';
-import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
-
-function getAllPage(page: Page) {
-  const newPageButton = page.getByTestId('new-page-button-trigger');
-  const newPageDropdown = newPageButton.locator('svg');
-  const edgelessBlockCard = page.getByTestId('new-edgeless-button-in-all-page');
-
-  async function clickNewPageButton() {
-    const newPageButton = page.getByTestId('new-page-button-trigger');
-    return await newPageButton.click();
-  }
-
-  async function clickNewEdgelessDropdown() {
-    await newPageDropdown.click();
-    await edgelessBlockCard.click();
-  }
-
-  return { clickNewPageButton, clickNewEdgelessDropdown };
-}
 
 test('all page', async ({ page }) => {
   await openHomePage(page);
@@ -332,8 +314,15 @@ test('click display button to group pages', async ({ page }) => {
   await waitForAllPagesLoad(page);
   // click the display button
   await page.locator('[data-testid="page-display-menu-button"]').click();
+
+  // click grouping menu item and wait for submenu
+
   await page.locator('[data-testid="page-display-grouping-menuItem"]').click();
-  await page.locator('[data-testid="group-by-favourites"]').click();
+
+  // don't know why the `page.getByTestId('group-by-favourites').click()` will make the submenu disappear and failed
+  await page.getByTestId('group-by-favourites').evaluate((el: HTMLElement) => {
+    el.click();
+  });
 
   // the group header should appear
   await expect(
@@ -414,9 +403,9 @@ test('create a collection and delete it', async ({ page }) => {
 
   // create a collection
   await page.getByTestId('all-collection-new-button').click();
-  await expect(page.getByTestId('edit-collection-modal')).toBeVisible();
-  await page.getByTestId('input-collection-title').fill('test collection');
-  await page.getByTestId('save-collection').click();
+  await expect(page.getByTestId('prompt-modal-input')).toBeVisible();
+  await page.getByTestId('prompt-modal-input').fill('test collection');
+  await page.getByTestId('prompt-modal-confirm').click();
 
   // check the collection is created
   await clickSideBarAllPageButton(page);

@@ -1,10 +1,14 @@
+import { Masonry } from '@affine/component';
 import type { DocMeta } from '@blocksuite/affine/store';
 import { useMemo } from 'react';
 
-import { DocCard } from '../../../components';
-import * as styles from './masonry.css';
+import { calcRowsById, DocCard } from '../../../components';
 
-// TODO(@CatsJuice): Large amount docs performance
+const fullStyle = {
+  width: '100%',
+  height: '100%',
+};
+
 export const MasonryDocs = ({
   items,
   showTags,
@@ -12,26 +16,29 @@ export const MasonryDocs = ({
   items: DocMeta[];
   showTags?: boolean;
 }) => {
-  // card preview is loaded lazily, it's meaningless to calculate height
-  const stacks = useMemo(() => {
-    return items.reduce(
-      (acc, item, i) => {
-        acc[i % 2].push(item);
-        return acc;
-      },
-      [[], []] as [DocMeta[], DocMeta[]]
-    );
-  }, [items]);
-
+  const masonryItems = useMemo(
+    () =>
+      items.map(item => {
+        return {
+          id: item.id,
+          height: calcRowsById(item.id) * 18 + 95,
+          children: (
+            <DocCard style={fullStyle} meta={item} showTags={showTags} />
+          ),
+        };
+      }),
+    [items, showTags]
+  );
   return (
-    <div className={styles.stacks}>
-      {stacks.map((stack, i) => (
-        <ul key={i} className={styles.stack}>
-          {stack.map(item => (
-            <DocCard showTags={showTags} key={item.id} meta={item} />
-          ))}
-        </ul>
-      ))}
-    </div>
+    <Masonry
+      style={fullStyle}
+      itemWidthMin={160}
+      gapX={17}
+      gapY={10}
+      paddingX={16}
+      paddingY={16}
+      virtualScroll
+      items={masonryItems}
+    />
   );
 };

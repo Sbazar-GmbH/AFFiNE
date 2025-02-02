@@ -1,23 +1,18 @@
-import { EditorSettingService } from '@affine/core/modules/editor-settting';
+import { DocsService } from '@affine/core/modules/doc';
+import { EditorSettingService } from '@affine/core/modules/editor-setting';
+import {
+  JOURNAL_DATE_FORMAT,
+  JournalService,
+  type MaybeDate,
+} from '@affine/core/modules/journal';
+import type { WorkbenchOpenOptions } from '@affine/core/modules/workbench/entities/workbench';
 import { i18nTime } from '@affine/i18n';
 import { track } from '@affine/track';
-import { type DocCollection, Text } from '@blocksuite/affine/store';
-import {
-  type DocProps,
-  DocsService,
-  initDocFromProps,
-  useService,
-  useServices,
-} from '@toeverything/infra';
+import { useService, useServices } from '@toeverything/infra';
 import dayjs from 'dayjs';
 import { useCallback, useMemo } from 'react';
 
 import { WorkbenchService } from '../../modules/workbench';
-import { useCurrentWorkspacePropertiesAdapter } from './use-affine-adapter';
-import { useDocCollectionHelper } from './use-block-suite-workspace-helper';
-
-type MaybeDate = Date | string | number;
-export const JOURNAL_DATE_FORMAT = 'YYYY-MM-DD';
 
 function isJournalString(j?: string | false) {
   return j ? !!j?.match(/^\d{4}-\d{2}-\d{2}$/) : false;
@@ -30,112 +25,45 @@ function toDayjs(j?: string | false) {
   return day;
 }
 
-export const useJournalHelper = (docCollection: DocCollection) => {
-  const bsWorkspaceHelper = useDocCollectionHelper(docCollection);
-  const { docsService, editorSettingService } = useServices({
+/**
+ * @deprecated use `JournalService` directly
+ */
+export const useJournalHelper = () => {
+  const { journalService } = useServices({
     DocsService,
     EditorSettingService,
+    JournalService,
   });
-  const adapter = useCurrentWorkspacePropertiesAdapter();
-  const { isPageJournal } = useJournalInfoHelper();
-
-  /**
-   * @internal
-   */
-  const _createJournal = useCallback(
-    (maybeDate: MaybeDate) => {
-      const day = dayjs(maybeDate);
-      const title = day.format(JOURNAL_DATE_FORMAT);
-      const page = bsWorkspaceHelper.createDoc();
-      docsService.list.setPrimaryMode(page.id, 'page');
-      // set created date to match the journal date
-      page.collection.setDocMeta(page.id, {
-        createDate: dayjs()
-          .set('year', day.year())
-          .set('month', day.month())
-          .set('date', day.date())
-          .toDate()
-          .getTime(),
-      });
-      const docProps: DocProps = {
-        page: { title: new Text(title) },
-        note: editorSettingService.editorSetting.get('affine:note'),
-      };
-      initDocFromProps(page, docProps);
-      adapter.setJournalPageDateString(page.id, title);
-      return page;
-    },
-    [adapter, bsWorkspaceHelper, docsService.list, editorSettingService]
-  );
-
-  /**
-   * query all journals by date
-   */
-  const getJournalsByDate = useCallback(
-    (maybeDate: MaybeDate) => {
-      const day = dayjs(maybeDate);
-      return Array.from(docCollection.docs.values()).filter(page => {
-        const pageId = page.id;
-        if (!isPageJournal(pageId)) return false;
-        if (page.meta?.trash) return false;
-        const journalDate = adapter.getJournalPageDateString(page.id);
-        if (!journalDate) return false;
-        return day.isSame(journalDate, 'day');
-      });
-    },
-    [adapter, isPageJournal, docCollection.docs]
-  );
 
   /**
    * get journal by date, create one if not exist
    */
   const getJournalByDate = useCallback(
     (maybeDate: MaybeDate) => {
-      const pages = getJournalsByDate(maybeDate);
-      if (pages.length) return pages[0].getDoc();
-      return _createJournal(maybeDate);
+      return journalService.ensureJournalByDate(maybeDate);
     },
-    [_createJournal, getJournalsByDate]
-  );
-
-  const appendContentToToday = useCallback(
-    async (content: string) => {
-      if (!content) return;
-      const page = getJournalByDate(dayjs().format(JOURNAL_DATE_FORMAT));
-      if (!page) return;
-      const blockId = page.addBlock(
-        'affine:paragraph',
-        { text: new page.Text(content) },
-        page.getBlockByFlavour('affine:note')[0].id
-      );
-      return { page, blockId };
-    },
-    [getJournalByDate]
+    [journalService]
   );
 
   return useMemo(
     () => ({
-      getJournalsByDate,
       getJournalByDate,
-      appendContentToToday,
     }),
-    [getJournalsByDate, getJournalByDate, appendContentToToday]
+    [getJournalByDate]
   );
 };
 
 // split useJournalRouteHelper since it requires a <Route /> context, which may not work in lit
-export const useJournalRouteHelper = (docCollection: DocCollection) => {
-  const { getJournalByDate } = useJournalHelper(docCollection);
+export const useJournalRouteHelper = () => {
+  const { getJournalByDate } = useJournalHelper();
   const workbench = useService(WorkbenchService).workbench;
   /**
    * open journal by date, create one if not exist
    */
   const openJournal = useCallback(
-    (maybeDate: MaybeDate, newTab?: boolean) => {
+    (maybeDate: MaybeDate, options?: WorkbenchOpenOptions) => {
       const page = getJournalByDate(maybeDate);
-      workbench.openDoc(page.id, {
-        at: newTab ? 'new-tab' : 'active',
-      });
+      workbench.openDoc(page.id, options);
       track.$.navigationPanel.journal.navigate({
         to: 'journal',
       });
@@ -148,9 +76,9 @@ export const useJournalRouteHelper = (docCollection: DocCollection) => {
    * open today's journal
    */
   const openToday = useCallback(
-    (newTab?: boolean) => {
+    (options: WorkbenchOpenOptions) => {
       const date = dayjs().format(JOURNAL_DATE_FORMAT);
-      return openJournal(date, newTab);
+      return openJournal(date, options);
     },
     [openJournal]
   );
@@ -164,31 +92,33 @@ export const useJournalRouteHelper = (docCollection: DocCollection) => {
   );
 };
 
-// get journal info that don't rely on `docCollection`
+/**
+ * @deprecated use `JournalService` directly
+ */
 export const useJournalInfoHelper = (pageId?: string | null) => {
-  const adapter = useCurrentWorkspacePropertiesAdapter();
+  const journalService = useService(JournalService);
 
   const isPageJournal = useCallback(
     (pageId: string) => {
-      return !!adapter.getJournalPageDateString(pageId);
+      return !!journalService.journalDate$(pageId).value;
     },
-    [adapter]
+    [journalService]
   );
 
   const isPageTodayJournal = useCallback(
     (pageId: string) => {
       const date = dayjs().format(JOURNAL_DATE_FORMAT);
-      const d = adapter.getJournalPageDateString(pageId);
+      const d = journalService.journalDate$(pageId).value;
       return isPageJournal(pageId) && d === date;
     },
-    [adapter, isPageJournal]
+    [isPageJournal, journalService]
   );
 
   const getJournalDateString = useCallback(
     (pageId: string) => {
-      return adapter.getJournalPageDateString(pageId);
+      return journalService.journalDate$(pageId).value;
     },
-    [adapter]
+    [journalService]
   );
 
   const getLocalizedJournalDateString = useCallback(

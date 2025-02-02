@@ -1,20 +1,27 @@
-import { toast } from '@affine/component';
+import { toast, useConfirmModal } from '@affine/component';
 import {
   PreconditionStrategy,
   registerAffineCommand,
 } from '@affine/core/commands';
-import { DocInfoService } from '@affine/core/modules/doc-info';
+import { WorkspaceDialogService } from '@affine/core/modules/dialogs';
+import { DocService } from '@affine/core/modules/doc';
 import type { Editor } from '@affine/core/modules/editor';
-import { CompatibleFavoriteItemsAdapter } from '@affine/core/modules/properties';
-import { WorkspaceFlavour } from '@affine/env/workspace';
+import { EditorSettingService } from '@affine/core/modules/editor-setting';
+import { CompatibleFavoriteItemsAdapter } from '@affine/core/modules/favorite';
+import { OpenInAppService } from '@affine/core/modules/open-in-app';
+import { WorkspaceService } from '@affine/core/modules/workspace';
 import { useI18n } from '@affine/i18n';
 import { track } from '@affine/track';
-import { EdgelessIcon, HistoryIcon, PageIcon } from '@blocksuite/icons/rc';
 import {
-  DocService,
+  EdgelessIcon,
+  HistoryIcon,
+  LocalWorkspaceIcon,
+  PageIcon,
+} from '@blocksuite/icons/rc';
+import {
   useLiveData,
   useService,
-  WorkspaceService,
+  useServiceOptional,
 } from '@toeverything/infra';
 import { useSetAtom } from 'jotai';
 import { useCallback, useEffect } from 'react';
@@ -22,21 +29,28 @@ import { useCallback, useEffect } from 'react';
 import { pageHistoryModalAtom } from '../../../components/atoms/page-history';
 import { useBlockSuiteMetaHelper } from './use-block-suite-meta-helper';
 import { useExportPage } from './use-export-page';
-import { useTrashModalHelper } from './use-trash-modal-helper';
 
-export function useRegisterBlocksuiteEditorCommands(editor: Editor) {
+export function useRegisterBlocksuiteEditorCommands(
+  editor: Editor,
+  active: boolean
+) {
   const doc = useService(DocService).doc;
   const docId = doc.id;
   const mode = useLiveData(editor.mode$);
   const t = useI18n();
   const workspace = useService(WorkspaceService).workspace;
 
+  const editorSetting = useService(EditorSettingService).editorSetting;
+  const defaultPageWidth = useLiveData(editorSetting.settings$).fullWidthLayout;
+  const pageWidth = useLiveData(doc.properties$.selector(p => p.pageWidth));
+  const checked = pageWidth ? pageWidth === 'fullWidth' : defaultPageWidth;
+
   const favAdapter = useService(CompatibleFavoriteItemsAdapter);
   const favorite = useLiveData(favAdapter.isFavorite$(docId, 'doc'));
   const trash = useLiveData(doc.trash$);
 
   const setPageHistoryModalState = useSetAtom(pageHistoryModalAtom);
-  const docInfoModal = useService(DocInfoService).modal;
+  const workspaceDialogService = useService(WorkspaceDialogService);
 
   const openHistoryModal = useCallback(() => {
     setPageHistoryModalState(() => ({
@@ -46,26 +60,35 @@ export function useRegisterBlocksuiteEditorCommands(editor: Editor) {
   }, [docId, setPageHistoryModalState]);
 
   const openInfoModal = useCallback(() => {
-    docInfoModal.open(docId);
-  }, [docId, docInfoModal]);
+    workspaceDialogService.open('doc-info', { docId });
+  }, [docId, workspaceDialogService]);
 
   const { duplicate } = useBlockSuiteMetaHelper();
   const exportHandler = useExportPage();
-  const { setTrashModal } = useTrashModalHelper();
-  const onClickDelete = useCallback(
-    (title: string) => {
-      setTrashModal({
-        open: true,
-        pageIds: [docId],
-        pageTitles: [title],
-      });
-    },
-    [docId, setTrashModal]
-  );
+  const { openConfirmModal } = useConfirmModal();
+  const onClickDelete = useCallback(() => {
+    openConfirmModal({
+      title: t['com.affine.moveToTrash.confirmModal.title'](),
+      description: t['com.affine.moveToTrash.confirmModal.description']({
+        title: doc.title$.value || t['Untitled'](),
+      }),
+      cancelText: t['com.affine.confirmModal.button.cancel'](),
+      confirmText: t.Delete(),
+      onConfirm: () => {
+        doc.moveToTrash();
+      },
+    });
+  }, [doc, openConfirmModal, t]);
 
-  const isCloudWorkspace = workspace.flavour === WorkspaceFlavour.AFFINE_CLOUD;
+  const isCloudWorkspace = workspace.flavour !== 'local';
+
+  const openInAppService = useServiceOptional(OpenInAppService);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     const unsubs: Array<() => void> = [];
     const preconditionStrategy = () =>
       PreconditionStrategy.InPaperOrEdgeless && !trash;
@@ -157,6 +180,24 @@ export function useRegisterBlocksuiteEditorCommands(editor: Editor) {
       })
     );
 
+    unsubs.push(
+      registerAffineCommand({
+        id: `editor:page-set-width`,
+        preconditionStrategy: () => mode === 'page',
+        category: `editor:page`,
+        icon: <PageIcon />,
+        label: checked
+          ? t['com.affine.cmdk.affine.current-page-width-layout.standard']()
+          : t['com.affine.cmdk.affine.current-page-width-layout.full-width'](),
+        async run() {
+          doc.record.setProperty(
+            'pageWidth',
+            checked ? 'standard' : 'fullWidth'
+          );
+        },
+      })
+    );
+
     // TODO(@Peng): should not show duplicate for journal
     unsubs.push(
       registerAffineCommand({
@@ -170,23 +211,6 @@ export function useRegisterBlocksuiteEditorCommands(editor: Editor) {
           track.$.cmdk.editor.createDoc({
             control: 'duplicate',
           });
-        },
-      })
-    );
-
-    unsubs.push(
-      registerAffineCommand({
-        id: `editor:${mode}-export-to-pdf`,
-        preconditionStrategy: () => mode === 'page' && !trash,
-        category: `editor:${mode}`,
-        icon: mode === 'page' ? <PageIcon /> : <EdgelessIcon />,
-        label: t['Export to PDF'](),
-        async run() {
-          track.$.cmdk.editor.export({
-            type: 'pdf',
-          });
-
-          exportHandler('pdf');
         },
       })
     );
@@ -244,6 +268,23 @@ export function useRegisterBlocksuiteEditorCommands(editor: Editor) {
 
     unsubs.push(
       registerAffineCommand({
+        id: `editor:${mode}-export-to-snapshot`,
+        preconditionStrategy,
+        category: `editor:${mode}`,
+        icon: mode === 'page' ? <PageIcon /> : <EdgelessIcon />,
+        label: t['Export to Snapshot'](),
+        async run() {
+          track.$.cmdk.editor.export({
+            type: 'snapshot',
+          });
+
+          exportHandler('snapshot');
+        },
+      })
+    );
+
+    unsubs.push(
+      registerAffineCommand({
         id: `editor:${mode}-move-to-trash`,
         preconditionStrategy,
         category: `editor:${mode}`,
@@ -252,7 +293,7 @@ export function useRegisterBlocksuiteEditorCommands(editor: Editor) {
         run() {
           track.$.cmdk.editor.deleteDoc();
 
-          onClickDelete(doc.title$.value);
+          onClickDelete();
         },
       })
     );
@@ -284,6 +325,20 @@ export function useRegisterBlocksuiteEditorCommands(editor: Editor) {
             track.$.cmdk.docHistory.open();
 
             openHistoryModal();
+          },
+        })
+      );
+    }
+
+    if (isCloudWorkspace && BUILD_CONFIG.isWeb) {
+      unsubs.push(
+        registerAffineCommand({
+          id: 'editor:open-in-app',
+          category: `editor:${mode}`,
+          icon: <LocalWorkspaceIcon />,
+          label: t['com.affine.header.option.open-in-desktop'](),
+          run() {
+            openInAppService?.showOpenInAppPage();
           },
         })
       );
@@ -323,5 +378,10 @@ export function useRegisterBlocksuiteEditorCommands(editor: Editor) {
     docId,
     doc,
     openInfoModal,
+    pageWidth,
+    defaultPageWidth,
+    checked,
+    openInAppService,
+    active,
   ]);
 }

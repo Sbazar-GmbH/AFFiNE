@@ -1,13 +1,16 @@
 import { Menu, type MenuProps } from '@affine/component';
 import { useNavigateHelper } from '@affine/core/components/hooks/use-navigate-helper';
-import type { CreateWorkspaceCallbackPayload } from '@affine/core/modules/create-workspace';
-import { track } from '@affine/track';
+import { GlobalContextService } from '@affine/core/modules/global-context';
+import { WorkbenchService } from '@affine/core/modules/workbench';
 import {
-  GlobalContextService,
-  useLiveData,
-  useServices,
   type WorkspaceMetadata,
   WorkspacesService,
+} from '@affine/core/modules/workspace';
+import { track } from '@affine/track';
+import {
+  useLiveData,
+  useServiceOptional,
+  useServices,
 } from '@toeverything/infra';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -18,8 +21,10 @@ interface WorkspaceSelectorProps {
   open?: boolean;
   workspaceMetadata?: WorkspaceMetadata;
   onSelectWorkspace?: (workspaceMetadata: WorkspaceMetadata) => void;
-  onCreatedWorkspace?: (payload: CreateWorkspaceCallbackPayload) => void;
-  showSettingsButton?: boolean;
+  onCreatedWorkspace?: (payload: {
+    metadata: WorkspaceMetadata;
+    defaultDocId?: string;
+  }) => void;
   showEnableCloudButton?: boolean;
   showArrowDownIcon?: boolean;
   showSyncStatus?: boolean;
@@ -32,7 +37,6 @@ export const WorkspaceSelector = ({
   workspaceMetadata: outerWorkspaceMetadata,
   onSelectWorkspace,
   onCreatedWorkspace,
-  showSettingsButton,
   showArrowDownIcon,
   disable,
   open: outerOpen,
@@ -83,7 +87,6 @@ export const WorkspaceSelector = ({
           onClickWorkspace={onSelectWorkspace}
           onCreatedWorkspace={onCreatedWorkspace}
           showEnableCloudButton={showEnableCloudButton}
-          showSettingsButton={showSettingsButton}
         />
       }
       contentOptions={{
@@ -107,6 +110,7 @@ export const WorkspaceSelector = ({
           showArrowDownIcon={showArrowDownIcon}
           disable={disable}
           hideCollaborationIcon={true}
+          hideTeamWorkspaceIcon={true}
           data-testid="current-workspace-card"
         />
       ) : (
@@ -122,32 +126,43 @@ export const WorkspaceNavigator = ({
   ...props
 }: WorkspaceSelectorProps) => {
   const { jumpToPage } = useNavigateHelper();
+  const workbench = useServiceOptional(WorkbenchService)?.workbench;
 
   const handleClickWorkspace = useCallback(
     (workspaceMetadata: WorkspaceMetadata) => {
       onSelectWorkspace?.(workspaceMetadata);
+
+      const closeInactiveViews = () =>
+        workbench?.views$.value.forEach(view => {
+          if (workbench?.activeView$.value !== view) {
+            workbench?.close(view);
+          }
+        });
+
       if (document.startViewTransition) {
         document.startViewTransition(() => {
+          closeInactiveViews();
           jumpToPage(workspaceMetadata.id, 'all');
           return new Promise(resolve =>
             setTimeout(resolve, 150)
           ); /* start transition after 150ms */
         });
       } else {
+        closeInactiveViews();
         jumpToPage(workspaceMetadata.id, 'all');
       }
     },
-    [onSelectWorkspace, jumpToPage]
+    [jumpToPage, onSelectWorkspace, workbench]
   );
   const handleCreatedWorkspace = useCallback(
-    (payload: CreateWorkspaceCallbackPayload) => {
+    (payload: { metadata: WorkspaceMetadata; defaultDocId?: string }) => {
       onCreatedWorkspace?.(payload);
       if (document.startViewTransition) {
         document.startViewTransition(() => {
           if (payload.defaultDocId) {
-            jumpToPage(payload.meta.id, payload.defaultDocId);
+            jumpToPage(payload.metadata.id, payload.defaultDocId);
           } else {
-            jumpToPage(payload.meta.id, 'all');
+            jumpToPage(payload.metadata.id, 'all');
           }
           return new Promise(resolve =>
             setTimeout(resolve, 150)
@@ -155,9 +170,9 @@ export const WorkspaceNavigator = ({
         });
       } else {
         if (payload.defaultDocId) {
-          jumpToPage(payload.meta.id, payload.defaultDocId);
+          jumpToPage(payload.metadata.id, payload.defaultDocId);
         } else {
-          jumpToPage(payload.meta.id, 'all');
+          jumpToPage(payload.metadata.id, 'all');
         }
       }
     },

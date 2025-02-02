@@ -1,9 +1,10 @@
 import { track } from '@affine/track';
 import { Text } from '@blocksuite/affine/store';
-import type { DocProps, DocsService } from '@toeverything/infra';
 import { Service } from '@toeverything/infra';
 
-import { EditorSettingService } from '../../editor-settting';
+import type { DocProps } from '../../../blocksuite/initialization';
+import type { DocsService } from '../../doc';
+import { EditorSettingService } from '../../editor-setting';
 import type { WorkbenchService } from '../../workbench';
 import { CollectionsQuickSearchSession } from '../impls/collections';
 import { CommandsQuickSearchSession } from '../impls/commands';
@@ -118,7 +119,7 @@ export class CMDKQuickSearchService extends Service {
         },
         {
           placeholder: {
-            key: 'com.affine.cmdk.docs.placeholder',
+            i18nKey: 'com.affine.cmdk.docs.placeholder',
           },
         }
       );

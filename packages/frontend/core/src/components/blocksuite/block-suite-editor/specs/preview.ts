@@ -1,6 +1,6 @@
-import type { ExtensionType } from '@blocksuite/affine/block-std';
+import { AIChatBlockSpec } from '@affine/core/blocksuite/presets/blocks/ai-chat-block';
 import { SpecProvider } from '@blocksuite/affine/blocks';
-import { AIChatBlockSpec } from '@blocksuite/affine/presets';
+import type { ExtensionType } from '@blocksuite/affine/store';
 
 import { getFontConfigExtension } from './font-extension';
 

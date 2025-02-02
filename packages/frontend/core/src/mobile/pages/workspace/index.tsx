@@ -1,19 +1,15 @@
 import { AffineErrorBoundary } from '@affine/core/components/affine/affine-error-boundary';
 import { AffineErrorComponent } from '@affine/core/components/affine/affine-error-boundary/affine-error-fallback';
-import { AppFallback } from '@affine/core/components/affine/app-container';
 import { PageNotFound } from '@affine/core/desktop/pages/404';
-import { MobileWorkbenchRoot } from '@affine/core/desktop/pages/workspace/workbench-root';
 import { workbenchRoutes } from '@affine/core/mobile/workbench-router';
-import {
-  useLiveData,
-  useServices,
-  WorkspacesService,
-} from '@toeverything/infra';
+import { WorkspacesService } from '@affine/core/modules/workspace';
+import { useLiveData, useServices } from '@toeverything/infra';
 import {
   lazy as reactLazy,
   Suspense,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -24,6 +20,7 @@ import {
 } from 'react-router-dom';
 
 import { WorkspaceLayout } from './layout';
+import { MobileWorkbenchRoot } from './workbench-root';
 
 type Route = { Component: React.ComponentType };
 /**
@@ -114,13 +111,19 @@ export const Component = () => {
     }
   }, [listLoading, meta, workspacesService]);
 
-  // if workspace is not found, we should revalidate in interval
+  // if workspace is not found, we should retry
+  const retryTimesRef = useRef(3);
+  useEffect(() => {
+    retryTimesRef.current = 3; // reset retry times
+  }, [params.workspaceId]);
   useEffect(() => {
     if (listLoading === false && meta === undefined) {
-      const timer = setInterval(
-        () => workspacesService.list.revalidate(),
-        5000
-      );
+      const timer = setInterval(() => {
+        if (retryTimesRef.current > 0) {
+          workspacesService.list.revalidate();
+          retryTimesRef.current--;
+        }
+      }, 5000);
       return () => clearInterval(timer);
     }
     return;
@@ -136,7 +139,7 @@ export const Component = () => {
     return <PageNotFound noPermission />;
   }
   if (!meta) {
-    return <AppFallback key="workspaceLoading" />;
+    return;
   }
   return (
     <WorkspaceLayout meta={meta}>

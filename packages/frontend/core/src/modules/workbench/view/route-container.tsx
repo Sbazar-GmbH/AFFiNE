@@ -6,7 +6,7 @@ import { Suspense, useCallback } from 'react';
 import { Outlet } from 'react-router-dom';
 
 import { AppSidebarService } from '../../app-sidebar';
-import { SidebarSwitch } from '../../app-sidebar/views';
+import { SidebarSwitch } from '../../app-sidebar/views/sidebar-header';
 import { ViewService } from '../services/view';
 import { WorkbenchService } from '../services/workbench';
 import * as styles from './route-container.css';
@@ -34,6 +34,7 @@ const ToggleButton = ({
       onClick={onToggle}
       className={className}
       data-show={show}
+      data-testid="right-sidebar-toggle"
     >
       <RightSidebarIcon />
     </IconButton>

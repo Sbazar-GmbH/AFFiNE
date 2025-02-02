@@ -1,4 +1,6 @@
 // Please add modules to `external` in `rollupOptions` to avoid wrong bundling.
+import type { MessagePort } from 'node:worker_threads';
+
 import type { EventBasedChannel } from 'async-call-rpc';
 import { AsyncCall } from 'async-call-rpc';
 import { ipcRenderer } from 'electron';
@@ -13,22 +15,6 @@ import {
   type RendererToHelper,
 } from '../shared/type';
 
-export function getElectronAPIs() {
-  const mainAPIs = getMainAPIs();
-  const helperAPIs = getHelperAPIs();
-
-  return {
-    apis: {
-      ...mainAPIs.apis,
-      ...helperAPIs.apis,
-    },
-    events: {
-      ...mainAPIs.events,
-      ...helperAPIs.events,
-    },
-  };
-}
-
 type Schema =
   | 'affine'
   | 'affine-canary'
@@ -41,9 +27,9 @@ const ReleaseTypeSchema = z.enum(['stable', 'beta', 'canary', 'internal']);
 const envBuildType = (process.env.BUILD_TYPE || 'canary').trim().toLowerCase();
 const buildType = ReleaseTypeSchema.parse(envBuildType);
 const isDev = process.env.NODE_ENV === 'development';
-let schema =
+let scheme =
   buildType === 'stable' ? 'affine' : (`affine-${envBuildType}` as Schema);
-schema = isDev ? 'affine-dev' : schema;
+scheme = isDev ? 'affine-dev' : scheme;
 
 export const appInfo = {
   electron: true,
@@ -53,8 +39,10 @@ export const appInfo = {
   viewId:
     process.argv.find(arg => arg.startsWith('--view-id='))?.split('=')[1] ??
     'unknown',
-  schema,
+  scheme,
 };
+
+export type AppInfo = typeof appInfo;
 
 function getMainAPIs() {
   const meta: ExposedMeta = (() => {
@@ -149,13 +137,18 @@ const helperPort = new Promise<MessagePort>(resolve =>
 const createMessagePortChannel = (port: MessagePort): EventBasedChannel => {
   return {
     on(listener) {
-      port.onmessage = e => {
+      const listen = (e: MessageEvent) => {
         listener(e.data);
       };
+      port.addEventListener('message', listen as any);
       port.start();
       return () => {
-        port.onmessage = null;
-        port.close();
+        port.removeEventListener('message', listen as any);
+        try {
+          port.close();
+        } catch (err) {
+          console.error('[helper] close port error', err);
+        }
       };
     },
     send(data) {
@@ -242,3 +235,16 @@ function getHelperAPIs() {
     return { apis: {}, events: {} };
   }
 }
+
+const mainAPIs = getMainAPIs();
+const helperAPIs = getHelperAPIs();
+
+export const apis = {
+  ...mainAPIs.apis,
+  ...helperAPIs.apis,
+};
+
+export const events = {
+  ...mainAPIs.events,
+  ...helperAPIs.events,
+};

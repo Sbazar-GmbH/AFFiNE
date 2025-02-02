@@ -1,7 +1,16 @@
 import { AppSidebarService } from '@affine/core/modules/app-sidebar';
+import { DesktopApiService } from '@affine/core/modules/desktop-api';
+import {
+  GlobalDialogService,
+  WorkspaceDialogService,
+} from '@affine/core/modules/dialogs';
+import { I18nService } from '@affine/core/modules/i18n';
+import { UrlService } from '@affine/core/modules/url';
+import { WorkspaceService } from '@affine/core/modules/workspace';
 import { useI18n } from '@affine/i18n';
+import { TextSelection } from '@blocksuite/affine/block-std';
 import type { AffineEditorContainer } from '@blocksuite/affine/presets';
-import { useService, WorkspaceService } from '@toeverything/infra';
+import { useService, useServiceOptional } from '@toeverything/infra';
 import { useStore } from 'jotai';
 import { useTheme } from 'next-themes';
 import { useEffect } from 'react';
@@ -11,21 +20,20 @@ import {
   registerAffineCommand,
   registerAffineCreationCommands,
   registerAffineHelpCommands,
+  registerAffineLanguageCommands,
   registerAffineLayoutCommands,
   registerAffineNavigationCommands,
   registerAffineSettingsCommands,
   registerAffineUpdatesCommands,
 } from '../../commands';
 import { usePageHelper } from '../../components/blocksuite/block-suite-page-list/utils';
-import { CreateWorkspaceDialogService } from '../../modules/create-workspace';
-import { EditorSettingService } from '../../modules/editor-settting';
+import { EditorSettingService } from '../../modules/editor-setting';
 import { CMDKQuickSearchService } from '../../modules/quicksearch/services/cmdk';
-import { useLanguageHelper } from './affine/use-language-helper';
 import { useActiveBlocksuiteEditor } from './use-block-suite-editor';
 import { useNavigateHelper } from './use-navigate-helper';
 
 function hasLinkPopover(editor: AffineEditorContainer | null) {
-  const textSelection = editor?.host?.std.selection.find('text');
+  const textSelection = editor?.host?.std.selection.find(TextSelection);
   if (editor && textSelection && textSelection.from.length > 0) {
     const formatBar = editor.host?.querySelector('affine-format-bar-widget');
     if (formatBar) {
@@ -65,14 +73,19 @@ export function useRegisterWorkspaceCommands() {
   const t = useI18n();
   const theme = useTheme();
   const currentWorkspace = useService(WorkspaceService).workspace;
-  const languageHelper = useLanguageHelper();
+  const urlService = useService(UrlService);
   const pageHelper = usePageHelper(currentWorkspace.docCollection);
   const navigationHelper = useNavigateHelper();
   const [editor] = useActiveBlocksuiteEditor();
   const cmdkQuickSearchService = useService(CMDKQuickSearchService);
   const editorSettingService = useService(EditorSettingService);
-  const createWorkspaceDialogService = useService(CreateWorkspaceDialogService);
+  const workspaceDialogService = useService(WorkspaceDialogService);
+  const globalDialogService = useService(GlobalDialogService);
   const appSidebarService = useService(AppSidebarService);
+  const i18n = useService(I18nService).i18n;
+
+  const quitAndInstall =
+    useServiceOptional(DesktopApiService)?.handler.updater.quitAndInstall;
 
   useEffect(() => {
     const unsub = registerCMDKCommand(cmdkQuickSearchService, editor);
@@ -84,15 +97,20 @@ export function useRegisterWorkspaceCommands() {
 
   // register AffineUpdatesCommands
   useEffect(() => {
+    if (!quitAndInstall) {
+      return;
+    }
+
     const unsub = registerAffineUpdatesCommands({
       store,
       t,
+      quitAndInstall,
     });
 
     return () => {
       unsub();
     };
-  }, [store, t]);
+  }, [quitAndInstall, store, t]);
 
   // register AffineNavigationCommands
   useEffect(() => {
@@ -101,12 +119,20 @@ export function useRegisterWorkspaceCommands() {
       t,
       docCollection: currentWorkspace.docCollection,
       navigationHelper,
+      workspaceDialogService,
     });
 
     return () => {
       unsub();
     };
-  }, [store, t, currentWorkspace.docCollection, navigationHelper]);
+  }, [
+    store,
+    t,
+    currentWorkspace.docCollection,
+    navigationHelper,
+    globalDialogService,
+    workspaceDialogService,
+  ]);
 
   // register AffineSettingsCommands
   useEffect(() => {
@@ -114,14 +140,25 @@ export function useRegisterWorkspaceCommands() {
       store,
       t,
       theme,
-      languageHelper,
       editorSettingService,
     });
 
     return () => {
       unsub();
     };
-  }, [editorSettingService, languageHelper, store, t, theme]);
+  }, [editorSettingService, store, t, theme]);
+
+  // register AffineLanguageCommands
+  useEffect(() => {
+    const unsub = registerAffineLanguageCommands({
+      i18n,
+      t,
+    });
+
+    return () => {
+      unsub();
+    };
+  }, [i18n, t]);
 
   // register AffineLayoutCommands
   useEffect(() => {
@@ -135,7 +172,7 @@ export function useRegisterWorkspaceCommands() {
   // register AffineCreationCommands
   useEffect(() => {
     const unsub = registerAffineCreationCommands({
-      createWorkspaceDialogService,
+      globalDialogService,
       pageHelper: pageHelper,
       t,
     });
@@ -143,17 +180,18 @@ export function useRegisterWorkspaceCommands() {
     return () => {
       unsub();
     };
-  }, [store, pageHelper, t, createWorkspaceDialogService]);
+  }, [store, pageHelper, t, globalDialogService]);
 
   // register AffineHelpCommands
   useEffect(() => {
     const unsub = registerAffineHelpCommands({
-      store,
       t,
+      urlService,
+      workspaceDialogService,
     });
 
     return () => {
       unsub();
     };
-  }, [store, t]);
+  }, [t, globalDialogService, urlService, workspaceDialogService]);
 }

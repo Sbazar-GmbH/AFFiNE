@@ -1,5 +1,6 @@
 import type { AIError } from '@blocksuite/affine/blocks';
-import { type ChatMessage } from '@blocksuite/affine/presets';
+
+import type { ChatMessage } from '../../../blocks';
 
 export type ChatStatus =
   | 'success'

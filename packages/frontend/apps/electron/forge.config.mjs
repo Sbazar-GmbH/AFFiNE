@@ -10,6 +10,7 @@ import {
   arch,
   buildType,
   icnsPath,
+  iconPngPath,
   iconUrl,
   iconX64PngPath,
   icoPath,
@@ -18,6 +19,8 @@ import {
 } from './scripts/make-env.js';
 
 const fromBuildIdentifier = utils.fromBuildIdentifier;
+
+const linuxMimeTypes = [`x-scheme-handler/${productName.toLowerCase()}`];
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const makers = [
@@ -88,6 +91,50 @@ const makers = [
       ],
     },
   },
+  !process.env.SKIP_BUNDLE && {
+    name: '@electron-forge/maker-deb',
+    config: {
+      bin: productName,
+      options: {
+        name: productName,
+        productName,
+        icon: iconX64PngPath,
+        mimeType: linuxMimeTypes,
+      },
+    },
+  },
+  !process.env.SKIP_BUNDLE && {
+    name: '@electron-forge/maker-flatpak',
+    platforms: ['linux'],
+    /** @type {import('@electron-forge/maker-flatpak').MakerFlatpakConfig} */
+    config: {
+      options: {
+        mimeType: linuxMimeTypes,
+        productName,
+        bin: productName,
+        id: fromBuildIdentifier(appIdMap),
+        icon: iconPngPath, // not working yet
+        branch: buildType,
+        runtimeVersion: '20.08',
+        finishArgs: [
+          // Wayland/X11 Rendering
+          '--socket=wayland',
+          '--socket=x11',
+          '--share=ipc',
+          // Open GL
+          '--device=dri',
+          // Audio output
+          '--socket=pulseaudio',
+          // Read/write home directory access
+          '--filesystem=home',
+          // Allow communication with network
+          '--share=network',
+          // System notifications with libnotify
+          '--talk-name=org.freedesktop.Notifications',
+        ],
+      },
+    },
+  },
 ].filter(Boolean);
 
 /**
@@ -103,6 +150,7 @@ export default {
       identity: 'Developer ID Application: TOEVERYTHING PTE. LTD.',
       'hardened-runtime': true,
     },
+    electronZipDir: process.env.ELECTRON_FORGE_ELECTRON_ZIP_DIR,
     osxNotarize: process.env.APPLE_ID
       ? {
           tool: 'notarytool',
@@ -119,6 +167,7 @@ export default {
         schemes: [productName.toLowerCase()],
       },
     ],
+    executableName: productName,
     asar: true,
   },
   makers,
@@ -157,13 +206,6 @@ export default {
 
       cp.spawnSync('yarn', ['generate-assets'], {
         stdio: 'inherit',
-        env: {
-          ...process.env,
-          NODE_OPTIONS: (process.env.NODE_OPTIONS ?? '').replace(
-            '--loader ts-node/esm',
-            ''
-          ),
-        },
         cwd: __dirname,
       });
     },

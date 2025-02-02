@@ -16,7 +16,7 @@ import {
   ROOT,
 } from './make-env.js';
 
-const log = debug('make-nsis');
+const log = debug('affine:make-nsis');
 
 async function make() {
   const appName = productName;
@@ -89,4 +89,6 @@ async function make() {
   await fs.remove(tmpPath);
 }
 
-make();
+make().catch(e => {
+  console.error(e);
+});

@@ -1,5 +1,5 @@
 import { useService } from '@toeverything/infra';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   type LoaderFunction,
   redirect,
@@ -49,6 +49,7 @@ export const loader: LoaderFunction = async ({ request }) => {
     const authParams = new URLSearchParams();
     authParams.set('method', 'oauth');
     authParams.set('payload', JSON.stringify(payload));
+    authParams.set('server', location.origin);
 
     return redirect(
       `/open-app/url?url=${encodeURIComponent(`${client}://authentication?${authParams.toString()}`)}`
@@ -62,9 +63,17 @@ export const Component = () => {
   const auth = useService(AuthService);
   const data = useLoaderData() as LoaderData;
 
+  // loader data from useLoaderData is not reactive, so that we can safely
+  // assume the effect below is only triggered once
+  const triggeredRef = useRef(false);
+
   const nav = useNavigate();
 
   useEffect(() => {
+    if (triggeredRef.current) {
+      return;
+    }
+    triggeredRef.current = true;
     auth
       .signInOauth(data.code, data.state, data.provider)
       .then(({ redirectUri }) => {

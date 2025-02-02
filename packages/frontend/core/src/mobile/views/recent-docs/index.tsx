@@ -1,9 +1,10 @@
 import { useBlockSuiteDocMeta } from '@affine/core/components/hooks/use-block-suite-page-meta';
-import { CollapsibleSection } from '@affine/core/modules/explorer';
-import { useService, WorkspaceService } from '@toeverything/infra';
+import { WorkspaceService } from '@affine/core/modules/workspace';
+import { useService } from '@toeverything/infra';
 import { useMemo } from 'react';
 
 import { DocCard } from '../../components/doc-card';
+import { CollapsibleSection } from '../../components/explorer';
 import * as styles from './styles.css';
 
 export const RecentDocs = ({ max = 5 }: { max?: number }) => {
@@ -31,8 +32,8 @@ export const RecentDocs = ({ max = 5 }: { max?: number }) => {
     >
       <div className={styles.scroll} data-testid="recent-docs-list">
         <ul className={styles.list}>
-          {cardMetas.map((doc, index) => (
-            <li key={index} className={styles.cardWrapper}>
+          {cardMetas.map(doc => (
+            <li key={doc.id} className={styles.cardWrapper}>
               <DocCard meta={doc} />
             </li>
           ))}

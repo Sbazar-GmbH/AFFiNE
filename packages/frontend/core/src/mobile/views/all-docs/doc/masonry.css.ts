@@ -1,28 +1,18 @@
 import { style } from '@vanilla-extract/css';
 
-export const invisibleWrapper = style({
-  position: 'absolute',
-  padding: 'inherit',
-  width: '100%',
-  height: 0,
-  overflow: 'hidden',
-  visibility: 'hidden',
-  pointerEvents: 'none',
-});
-export const invisibleList = style({
-  width: `calc(50% - 17px / 2)`,
-});
-export const stacks = style({
-  position: 'relative',
-  width: '100%',
+export const paddingX = 16;
+export const columnGap = 17;
+
+export const columns = style({
+  padding: `16px ${paddingX}px`,
   display: 'flex',
-  gap: 17,
-  padding: 16,
+  gap: columnGap,
 });
-export const stack = style({
-  width: 0,
-  flex: 1,
+
+export const column = style({
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
+  width: 0,
+  flex: 1,
 });

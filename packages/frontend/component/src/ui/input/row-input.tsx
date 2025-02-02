@@ -20,6 +20,7 @@ export type RowInputProps = {
   type?: HTMLInputElement['type'];
   style?: CSSProperties;
   onEnter?: () => void;
+  [key: `data-${string}`]: string;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'size' | 'onBlur'>;
 
 // RowInput component that is used in the selector layout for search input
@@ -44,17 +45,20 @@ export const RowInput = forwardRef<HTMLInputElement, RowInputProps>(
     const focusRef = useAutoFocus<HTMLInputElement>(autoFocus);
     const selectRef = useAutoSelect<HTMLInputElement>(autoSelect);
 
-    const inputRef = (el: HTMLInputElement | null) => {
-      focusRef.current = el;
-      selectRef.current = el;
-      if (upstreamRef) {
-        if (typeof upstreamRef === 'function') {
-          upstreamRef(el);
-        } else {
-          upstreamRef.current = el;
+    const inputRef = useCallback(
+      (el: HTMLInputElement | null) => {
+        focusRef.current = el;
+        selectRef.current = el;
+        if (upstreamRef) {
+          if (typeof upstreamRef === 'function') {
+            upstreamRef(el);
+          } else {
+            upstreamRef.current = el;
+          }
         }
-      }
-    };
+      },
+      [focusRef, selectRef, upstreamRef]
+    );
 
     // use native blur event to get event after unmount
     // don't use useLayoutEffect here, because the cleanup function will be called before unmount

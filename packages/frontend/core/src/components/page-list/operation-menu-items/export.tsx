@@ -6,6 +6,7 @@ import {
   ExportToHtmlIcon,
   ExportToMarkdownIcon,
   ExportToPngIcon,
+  PageIcon,
   PrinterIcon,
 } from '@blocksuite/icons/rc';
 import type { ReactNode } from 'react';
@@ -22,7 +23,9 @@ interface ExportMenuItemProps<T> {
 }
 
 interface ExportProps {
-  exportHandler: (type: 'pdf' | 'html' | 'png' | 'markdown') => void;
+  exportHandler: (
+    type: 'pdf' | 'html' | 'png' | 'markdown' | 'snapshot'
+  ) => void;
   pageMode?: 'page' | 'edgeless';
   className?: string;
 }
@@ -94,6 +97,13 @@ export const ExportMenuItems = ({
         icon={<ExportToMarkdownIcon />}
         label={t['Export to Markdown']()}
       />
+      <ExportMenuItem
+        onSelect={() => exportHandler('snapshot')}
+        className={className}
+        type="snapshot"
+        icon={<PageIcon />}
+        label={t['Export to Snapshot']()}
+      />
     </>
   );
 };
@@ -127,7 +137,7 @@ export const Export = ({ exportHandler, className, pageMode }: ExportProps) => {
       triggerOptions={{
         className: transitionStyle,
         prefixIcon: <ExportIcon />,
-        ['data-testid' as string]: 'export-menu',
+        'data-testid': 'export-menu',
       }}
       subOptions={{
         onOpenChange: handleExportMenuOpenChange,

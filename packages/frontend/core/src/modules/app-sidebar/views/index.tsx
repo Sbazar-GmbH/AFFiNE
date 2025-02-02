@@ -1,19 +1,23 @@
-import { Skeleton } from '@affine/component';
+import { type DropTargetGetFeedback, Skeleton } from '@affine/component';
 import { ResizePanel } from '@affine/component/resize-panel';
 import { useAppSettingHelper } from '@affine/core/components/hooks/affine/use-app-setting-helper';
 import { NavigateContext } from '@affine/core/components/hooks/use-navigate-helper';
 import { WorkspaceNavigator } from '@affine/core/components/workspace-selector';
+import type { AffineDNDData } from '@affine/core/types/dnd';
+import { useI18n } from '@affine/i18n';
 import {
   useLiveData,
   useService,
   useServiceOptional,
-  WorkspaceService,
 } from '@toeverything/infra';
 import clsx from 'clsx';
 import { debounce } from 'lodash-es';
 import type { PropsWithChildren, ReactElement } from 'react';
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
+import { WorkbenchService } from '../../workbench';
+import { allowedSplitViewEntityTypes } from '../../workbench/view/split-view/types';
+import { WorkspaceService } from '../../workspace';
 import { AppSidebarService } from '../services/app-sidebar';
 import * as styles from './fallback.css';
 import {
@@ -23,6 +27,7 @@ import {
   navHeaderStyle,
   navStyle,
   navWrapperStyle,
+  resizeHandleShortcutStyle,
   sidebarFloatMaskStyle,
 } from './index.css';
 import { SidebarHeader } from './sidebar-header';
@@ -42,28 +47,28 @@ export function AppSidebar({ children }: PropsWithChildren) {
   const clientBorder = appSettings.clientBorder;
 
   const appSidebarService = useService(AppSidebarService).sidebar;
+  const workbenchService = useService(WorkbenchService).workbench;
 
   const open = useLiveData(appSidebarService.open$);
   const width = useLiveData(appSidebarService.width$);
   const smallScreenMode = useLiveData(appSidebarService.smallScreenMode$);
   const hovering = useLiveData(appSidebarService.hovering$) && open !== true;
   const resizing = useLiveData(appSidebarService.resizing$);
-  const [deferredHovering, setDeferredHovering] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+
   useEffect(() => {
-    if (open) {
-      // if open, we don't need to show the floating sidebar
-      setDeferredHovering(false);
+    if (BUILD_CONFIG.isElectron) {
+      setInitialized(true);
       return;
     }
-    // we make a little delay here.
-    // this allow the sidebar close animation to complete.
-    const timeout = setTimeout(() => {
-      setDeferredHovering(hovering);
-    }, 150);
-    return () => {
-      clearTimeout(timeout);
-    };
-  }, [hovering, open]);
+    const shouldFloating = window.matchMedia(
+      `(max-width: ${floatingMaxWidth}px)`
+    ).matches;
+
+    appSidebarService.setSmallScreenMode(shouldFloating);
+    setInitialized(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const sidebarState = smallScreenMode
     ? open
@@ -71,7 +76,7 @@ export function AppSidebar({ children }: PropsWithChildren) {
       : 'close'
     : open
       ? 'open'
-      : deferredHovering
+      : hovering
         ? 'floating'
         : 'close';
 
@@ -123,17 +128,62 @@ export function AppSidebar({ children }: PropsWithChildren) {
     appSidebarService.setOpen(false);
   }, [appSidebarService]);
 
-  const onMouseEnter = useCallback(() => {
-    appSidebarService.setHovering(true);
-  }, [appSidebarService]);
+  useEffect(() => {
+    if (sidebarState !== 'floating' || resizing) {
+      return;
+    }
+    const onMouseMove = (e: MouseEvent) => {
+      const menuElement = document.querySelector(
+        'body > [data-radix-popper-content-wrapper] > [data-radix-menu-content]'
+      );
 
-  const onMouseLeave = useCallback(() => {
-    appSidebarService.setHovering(false);
-  }, [appSidebarService]);
+      if (menuElement) {
+        return;
+      }
+
+      if (e.clientX > width + 20) {
+        appSidebarService.setHovering(false);
+      }
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+    };
+  }, [appSidebarService, resizing, sidebarState, width]);
+
+  const resizeHandleDropTargetOptions = useMemo(() => {
+    return () => ({
+      data: () => {
+        const firstView = workbenchService.views$.value.at(0);
+
+        if (!firstView) {
+          return {};
+        }
+
+        return {
+          at: 'workbench:resize-handle',
+          edge: 'left', // left of the first view
+          viewId: firstView.id,
+        };
+      },
+      canDrop: (data: DropTargetGetFeedback<AffineDNDData>) => {
+        return (
+          (!!data.source.data.entity?.type &&
+            allowedSplitViewEntityTypes.has(data.source.data.entity?.type)) ||
+          data.source.data.from?.at === 'workbench:link'
+        );
+      },
+    });
+  }, [workbenchService.views$.value]);
+
+  if (!initialized) {
+    return null;
+  }
 
   return (
     <>
       <ResizePanel
+        resizeHandleDropTargetOptions={resizeHandleDropTargetOptions}
         floating={
           sidebarState === 'floating' || sidebarState === 'floating-with-mask'
         }
@@ -146,13 +196,19 @@ export function AppSidebar({ children }: PropsWithChildren) {
         onOpen={handleOpenChange}
         onResizing={handleResizing}
         onWidthChange={handleWidthChange}
+        unmountOnExit={false}
         className={clsx(navWrapperStyle, {
           [hoverNavWrapperStyle]: sidebarState === 'floating',
         })}
         resizeHandleOffset={0}
         resizeHandleVerticalPadding={clientBorder ? 16 : 0}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
+        resizeHandleTooltip={<ResizeHandleTooltipContent />}
+        resizeHandleTooltipOptions={{
+          side: 'right',
+          align: 'center',
+        }}
+        resizeHandleTooltipShortcut={['$mod', '/']}
+        resizeHandleTooltipShortcutClassName={resizeHandleShortcutStyle}
         data-transparent
         data-open={sidebarState !== 'close'}
         data-has-border={hasRightBorder}
@@ -181,6 +237,16 @@ export function AppSidebar({ children }: PropsWithChildren) {
   );
 }
 
+const ResizeHandleTooltipContent = () => {
+  const t = useI18n();
+  return (
+    <div>
+      <div>{t['com.affine.rootAppSidebar.resize-handle.tooltip.drag']()}</div>
+      <div>{t['com.affine.rootAppSidebar.resize-handle.tooltip.click']()}</div>
+    </div>
+  );
+};
+
 export function FallbackHeader() {
   return (
     <div className={styles.fallbackHeader}>
@@ -199,11 +265,7 @@ export function FallbackHeaderWithWorkspaceNavigator() {
   return (
     <div className={styles.fallbackHeader}>
       {currentWorkspace && navigate ? (
-        <WorkspaceNavigator
-          showSettingsButton
-          showSyncStatus
-          showEnableCloudButton
-        />
+        <WorkspaceNavigator showSyncStatus showEnableCloudButton />
       ) : (
         <FallbackHeaderSkeleton />
       )}
@@ -249,6 +311,7 @@ const RandomBars = ({ count, header }: { count: number; header?: boolean }) => {
         />
       ) : null}
       {Array.from({ length: count }).map((_, index) => (
+        // oxlint-disable-next-line eslint-plugin-react(no-array-index-key)
         <RandomBar key={index} />
       ))}
     </div>
@@ -327,6 +390,7 @@ export * from './app-updater-button';
 export * from './category-divider';
 export * from './index.css';
 export * from './menu-item';
+export * from './open-in-app-card';
 export * from './quick-search-input';
 export * from './sidebar-containers';
 export * from './sidebar-header';

@@ -1,8 +1,10 @@
 import { assignInlineVars } from '@vanilla-extract/dynamic';
 import clsx from 'clsx';
 import { forwardRef, useCallback, useLayoutEffect, useRef } from 'react';
-import { useTransition } from 'react-transition-state';
+import { useTransitionState } from 'react-transition-state';
 
+import { useDropTarget } from '../../ui/dnd';
+import { Tooltip, type TooltipProps } from '../../ui/tooltip';
 import * as styles from './resize-panel.css';
 
 export interface ResizeHandleProps
@@ -17,6 +19,11 @@ export interface ResizeHandleProps
   onOpen: (open: boolean) => void;
   onResizing: (resizing: boolean) => void;
   onWidthChange: (width: number) => void;
+  tooltip?: TooltipProps['content'];
+  tooltipShortcut?: TooltipProps['shortcut'];
+  tooltipOptions?: Partial<Omit<TooltipProps, 'content' | 'shortcut'>>;
+  tooltipShortcutClassName?: string;
+  dropTargetOptions?: Parameters<typeof useDropTarget>[0];
 }
 
 export interface ResizePanelProps
@@ -29,6 +36,13 @@ export interface ResizePanelProps
   resizeHandlePos: 'left' | 'right';
   resizeHandleOffset?: number;
   resizeHandleVerticalPadding?: number;
+  resizeHandleTooltip?: TooltipProps['content'];
+  resizeHandleTooltipShortcut?: TooltipProps['shortcut'];
+  resizeHandleTooltipShortcutClassName?: string;
+  resizeHandleTooltipOptions?: Partial<
+    Omit<TooltipProps, 'content' | 'shortcut'>
+  >;
+  resizeHandleDropTargetOptions?: Parameters<typeof useDropTarget>[0];
   enableAnimation?: boolean;
   width: number;
   unmountOnExit?: boolean;
@@ -45,10 +59,15 @@ const ResizeHandle = ({
   resizeHandlePos,
   resizeHandleOffset,
   resizeHandleVerticalPadding,
+  dropTargetOptions,
   open,
   onOpen,
   onResizing,
   onWidthChange,
+  tooltip,
+  tooltipShortcut,
+  tooltipOptions,
+  tooltipShortcutClassName,
   ...rest
 }: ResizeHandleProps) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -100,25 +119,39 @@ const ResizeHandle = ({
     [maxWidth, resizeHandlePos, minWidth, onWidthChange, onResizing, onOpen]
   );
 
+  const { dropTargetRef } = useDropTarget(dropTargetOptions, [
+    dropTargetOptions,
+  ]);
+
   return (
-    <div
-      {...rest}
-      data-testid="resize-handle"
-      ref={ref}
-      style={assignInlineVars({
-        [styles.resizeHandleOffsetVar]: `${resizeHandleOffset ?? 0}px`,
-        [styles.resizeHandleVerticalPadding]: `${
-          resizeHandleVerticalPadding ?? 0
-        }px`,
-      })}
-      className={clsx(styles.resizeHandleContainer, className)}
-      data-handle-position={resizeHandlePos}
-      data-resizing={resizing}
-      data-open={open}
-      onMouseDown={onResizeStart}
+    <Tooltip
+      content={tooltip}
+      shortcut={tooltipShortcut}
+      shortcutClassName={tooltipShortcutClassName}
+      {...tooltipOptions}
     >
-      <div className={styles.resizerInner} />
-    </div>
+      <div
+        {...rest}
+        data-testid="resize-handle"
+        ref={node => {
+          ref.current = node;
+          dropTargetRef.current = node;
+        }}
+        style={assignInlineVars({
+          [styles.resizeHandleOffsetVar]: `${resizeHandleOffset ?? 0}px`,
+          [styles.resizeHandleVerticalPadding]: `${
+            resizeHandleVerticalPadding ?? 0
+          }px`,
+        })}
+        className={clsx(styles.resizeHandleContainer, className)}
+        data-handle-position={resizeHandlePos}
+        data-resizing={resizing}
+        data-open={open}
+        onMouseDown={onResizeStart}
+      >
+        <div className={styles.resizerInner} />
+      </div>
+    </Tooltip>
   );
 };
 
@@ -143,17 +176,22 @@ export const ResizePanel = forwardRef<HTMLDivElement, ResizePanelProps>(
       resizeHandlePos,
       resizeHandleOffset,
       resizeHandleVerticalPadding,
+      resizeHandleTooltip,
+      resizeHandleTooltipShortcut,
+      resizeHandleTooltipShortcutClassName,
+      resizeHandleTooltipOptions,
+      resizeHandleDropTargetOptions,
       ...rest
     },
     ref
   ) {
     const safeWidth = Math.min(maxWidth, Math.max(minWidth, width));
-    const [{ status }, toggle] = useTransition({
+    const [{ status }, toggle] = useTransitionState({
       timeout: animationTimeout,
     });
     useLayoutEffect(() => {
       toggle(open);
-    }, [open]);
+    }, [open, toggle]);
     return (
       <div
         {...rest}
@@ -169,11 +207,17 @@ export const ResizePanel = forwardRef<HTMLDivElement, ResizePanelProps>(
         data-handle-position={resizeHandlePos}
         data-enable-animation={enableAnimation && !resizing}
       >
-        {!(status === 'exited' && unmountOnExit !== false) && children}
+        <div className={styles.content}>
+          {!(status === 'exited' && unmountOnExit !== false) && children}
+        </div>
         <ResizeHandle
           resizeHandlePos={resizeHandlePos}
           resizeHandleOffset={resizeHandleOffset}
           resizeHandleVerticalPadding={resizeHandleVerticalPadding}
+          tooltip={resizeHandleTooltip}
+          tooltipOptions={resizeHandleTooltipOptions}
+          tooltipShortcut={resizeHandleTooltipShortcut}
+          tooltipShortcutClassName={resizeHandleTooltipShortcutClassName}
           maxWidth={maxWidth}
           minWidth={minWidth}
           onOpen={onOpen}
@@ -181,6 +225,7 @@ export const ResizePanel = forwardRef<HTMLDivElement, ResizePanelProps>(
           onWidthChange={onWidthChange}
           open={open}
           resizing={resizing}
+          dropTargetOptions={resizeHandleDropTargetOptions}
         />
       </div>
     );

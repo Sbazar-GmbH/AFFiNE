@@ -1,16 +1,10 @@
-import { useUpgradeNotify } from '@affine/core/components/affine/subscription-landing/notify';
 import { SubscriptionPlan, SubscriptionRecurring } from '@affine/graphql';
-import { track } from '@affine/track';
 import { nanoid } from 'nanoid';
-import { useCallback, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
 
 import { type AuthAccountInfo } from '../../../modules/cloud';
 
 const separator = '::';
 const recoverSeparator = nanoid();
-const localStorageKey = 'subscription-succeed-info';
-
 const typeFormUrl = 'https://6dxre9ihosp.typeform.com/to';
 const typeFormUpgradeId = 'mUMGGQS8';
 const typeFormDowngradeId = 'RvD9AoRg';
@@ -25,7 +19,13 @@ type TypeFormInfo = {
 const getTypeFormLink = (id: string, info: TypeFormInfo) => {
   const plans = Array.isArray(info.plan) ? info.plan : [info.plan];
   const product_id = plans
-    .map(plan => (plan === SubscriptionPlan.AI ? 'ai' : 'cloud'))
+    .map(plan =>
+      plan === SubscriptionPlan.AI
+        ? 'ai'
+        : plan === SubscriptionPlan.Team
+          ? 'team'
+          : 'cloud'
+    )
     .join('-');
   const product_price =
     info.recurring === SubscriptionRecurring.Monthly
@@ -46,13 +46,18 @@ export const getDowngradeQuestionnaireLink = (info: TypeFormInfo) =>
 export const generateSubscriptionCallbackLink = (
   account: AuthAccountInfo | null,
   plan: SubscriptionPlan,
-  recurring: SubscriptionRecurring
+  recurring: SubscriptionRecurring,
+  workspaceId?: string
 ) => {
   if (account === null) {
     throw new Error('Account is required');
   }
   const baseUrl =
-    plan === SubscriptionPlan.AI ? '/ai-upgrade-success' : '/upgrade-success';
+    plan === SubscriptionPlan.AI
+      ? '/ai-upgrade-success'
+      : plan === SubscriptionPlan.Team
+        ? '/upgrade-success/team'
+        : '/upgrade-success';
 
   let name = account?.info?.name ?? '';
   if (name.includes(separator)) {
@@ -65,84 +70,22 @@ export const generateSubscriptionCallbackLink = (
     account.id,
     account.email,
     account.info?.name ?? '',
+    workspaceId ?? '',
   ].join(separator);
 
   return `${baseUrl}?info=${encodeURIComponent(query)}`;
 };
 
-/**
- * Parse subscription callback query.info
- * @returns
- */
-export const parseSubscriptionCallbackLink = (query: string) => {
-  const [plan, recurring, id, email, rawName] =
-    decodeURIComponent(query).split(separator);
-  const name = rawName.replaceAll(recoverSeparator, separator);
-
+export const getSubscriptionInfo = (searchParams: URLSearchParams) => {
+  const decodedInfo = decodeURIComponent(searchParams.get('info') || '');
+  const [plan, recurring, accountId, email, name, workspaceId] =
+    decodedInfo.split(separator);
   return {
     plan: plan as SubscriptionPlan,
     recurring: recurring as SubscriptionRecurring,
-    account: {
-      id,
-      email,
-      info: {
-        name,
-      },
-    },
+    accountId,
+    email,
+    name: name.replaceAll(recoverSeparator, separator),
+    workspaceId,
   };
-};
-
-/**
- * Hook to parse subscription callback link, and save to local storage and delete the query
- */
-export const useSubscriptionNotifyWriter = () => {
-  const [searchParams] = useSearchParams();
-
-  useEffect(() => {
-    const query = searchParams.get('info');
-    if (query) {
-      localStorage.setItem(localStorageKey, query);
-      searchParams.delete('info');
-    }
-  }, [searchParams]);
-};
-
-/**
- * Hook to read and parse subscription info from localStorage
- */
-export const useSubscriptionNotifyReader = () => {
-  const upgradeNotify = useUpgradeNotify();
-
-  const readAndNotify = useCallback(() => {
-    const query = localStorage.getItem(localStorageKey);
-    if (!query) return;
-
-    try {
-      const { plan, recurring, account } = parseSubscriptionCallbackLink(query);
-      const link = getUpgradeQuestionnaireLink({
-        id: account.id,
-        email: account.email,
-        name: account.info?.name ?? '',
-        plan,
-        recurring,
-      });
-      upgradeNotify(link);
-      localStorage.removeItem(localStorageKey);
-
-      track.$.settingsPanel.plans.subscribe({
-        plan,
-        recurring,
-      });
-    } catch (err) {
-      console.error('Failed to parse subscription callback link', err);
-    }
-  }, [upgradeNotify]);
-
-  useEffect(() => {
-    readAndNotify();
-    window.addEventListener('focus', readAndNotify);
-    return () => {
-      window.removeEventListener('focus', readAndNotify);
-    };
-  }, [readAndNotify]);
 };

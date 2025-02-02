@@ -116,7 +116,10 @@ export type FindEntityInput<T extends TableSchemaBuilder> = Pretty<
     T,
     {
       [key in TableDefinedFieldNames<T>]?: key extends keyof TableDefinedEntity<T>
-        ? TableDefinedEntity<T>[key]
+        ?
+            | TableDefinedEntity<T>[key]
+            | { not: TableDefinedEntity<T>[key] | null }
+            | null
         : never;
     }
   >
@@ -160,11 +163,11 @@ export class Table<T extends TableSchemaBuilder> {
 
         if (inputVal === undefined) {
           if (schema.optional) {
-            acc[key] = null;
+            acc[key] = undefined;
           }
 
           if (schema.default) {
-            acc[key] = schema.default() ?? null;
+            acc[key] = schema.default() ?? undefined;
           }
         }
 

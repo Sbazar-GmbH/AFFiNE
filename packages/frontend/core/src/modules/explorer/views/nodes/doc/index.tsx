@@ -6,21 +6,23 @@ import {
   Tooltip,
 } from '@affine/component';
 import { useAsyncCallback } from '@affine/core/components/hooks/affine-async-hooks';
+import { WorkspaceDialogService } from '@affine/core/modules/dialogs';
+import { DocsService } from '@affine/core/modules/doc';
 import { DocDisplayMetaService } from '@affine/core/modules/doc-display-meta';
-import { DocInfoService } from '@affine/core/modules/doc-info';
 import { DocsSearchService } from '@affine/core/modules/docs-search';
+import { FeatureFlagService } from '@affine/core/modules/feature-flag';
+import { GlobalContextService } from '@affine/core/modules/global-context';
 import type { AffineDNDData } from '@affine/core/types/dnd';
 import { useI18n } from '@affine/i18n';
 import { track } from '@affine/track';
 import {
-  DocsService,
-  GlobalContextService,
   LiveData,
   useLiveData,
   useService,
   useServices,
 } from '@toeverything/infra';
 import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
+import { NEVER } from 'rxjs';
 
 import { ExplorerTreeNode, type ExplorerTreeNodeDropEffect } from '../../tree';
 import type { GenericExplorerNode } from '../types';
@@ -47,13 +49,14 @@ export const ExplorerDocNode = ({
     docsService,
     globalContextService,
     docDisplayMetaService,
+    featureFlagService,
   } = useServices({
     DocsSearchService,
     DocsService,
     GlobalContextService,
     DocDisplayMetaService,
+    FeatureFlagService,
   });
-  // const pageInfoAdapter = useCurrentWorkspacePropertiesAdapter();
 
   const active =
     useLiveData(globalContextService.globalContext.docId.$) === docId;
@@ -67,6 +70,9 @@ export const ExplorerDocNode = ({
   );
   const docTitle = useLiveData(docDisplayMetaService.title$(docId));
   const isInTrash = useLiveData(docRecord?.trash$);
+  const enableEmojiIcon = useLiveData(
+    featureFlagService.flags.enable_emoji_doc_icon.$
+  );
 
   const Icon = useCallback(
     ({ className }: { className?: string }) => {
@@ -77,10 +83,15 @@ export const ExplorerDocNode = ({
 
   const children = useLiveData(
     useMemo(
-      () => LiveData.from(docsSearchService.watchRefsFrom(docId), null),
-      [docsSearchService, docId]
+      () =>
+        LiveData.from(
+          !collapsed ? docsSearchService.watchRefsFrom(docId) : NEVER,
+          null
+        ),
+      [docsSearchService, docId, collapsed]
     )
   );
+  const searching = children === null;
 
   const indexerLoading = useLiveData(
     docsSearchService.indexer.status$.map(
@@ -127,6 +138,9 @@ export const ExplorerDocNode = ({
           track.$.navigationPanel.docs.linkDoc({
             control: 'drag',
           });
+          track.$.navigationPanel.docs.drop({
+            type: data.source.data.entity.type,
+          });
         } else {
           toast(t['com.affine.rootAppSidebar.doc.link-doc-only']());
         }
@@ -159,6 +173,9 @@ export const ExplorerDocNode = ({
         track.$.navigationPanel.docs.linkDoc({
           control: 'drag',
         });
+        track.$.navigationPanel.docs.drop({
+          type: data.source.data.entity.type,
+        });
       } else {
         toast(t['com.affine.rootAppSidebar.doc.link-doc-only']());
       }
@@ -176,15 +193,15 @@ export const ExplorerDocNode = ({
     [canDrop]
   );
 
-  const docInfoModal = useService(DocInfoService).modal;
+  const workspaceDialogService = useService(WorkspaceDialogService);
   const operations = useExplorerDocNodeOperations(
     docId,
     useMemo(
       () => ({
-        openInfoModal: () => docInfoModal.open(docId),
+        openInfoModal: () => workspaceDialogService.open('doc-info', { docId }),
         openNodeCollapsed: () => setCollapsed(false),
       }),
-      [docId, docInfoModal]
+      [docId, workspaceDialogService]
     )
   );
 
@@ -202,10 +219,11 @@ export const ExplorerDocNode = ({
   return (
     <ExplorerTreeNode
       icon={Icon}
-      name={typeof docTitle === 'string' ? docTitle : t[docTitle.key]()}
+      name={t.t(docTitle)}
       dndData={dndData}
       onDrop={handleDropOnDoc}
       renameable
+      extractEmojiAsIcon={enableEmojiIcon}
       collapsed={collapsed}
       setCollapsed={setCollapsed}
       canDrop={handleCanDrop}
@@ -225,7 +243,9 @@ export const ExplorerDocNode = ({
       }
       reorderable={reorderable}
       onRename={handleRename}
-      childrenPlaceholder={<Empty onDrop={handleDropOnPlaceholder} />}
+      childrenPlaceholder={
+        searching ? null : <Empty onDrop={handleDropOnPlaceholder} />
+      }
       operations={finalOperations}
       dropEffect={handleDropEffectOnDoc}
       data-testid={`explorer-doc-${docId}`}

@@ -4,13 +4,12 @@ import { useEffect, useState } from 'react';
 import type { RouteObject } from 'react-router-dom';
 import {
   createBrowserRouter as reactRouterCreateBrowserRouter,
-  Outlet,
   redirect,
-  // eslint-disable-next-line @typescript-eslint/no-restricted-imports
+  // oxlint-disable-next-line @typescript-eslint/no-restricted-imports
   useNavigate,
 } from 'react-router-dom';
 
-import { AllWorkspaceModals } from './provider/model-provider';
+import { RootWrapper } from './pages/root';
 
 function RootRouter() {
   const navigate = useNavigate();
@@ -23,8 +22,7 @@ function RootRouter() {
   return (
     ready && (
       <NavigateContext.Provider value={navigate}>
-        <AllWorkspaceModals />
-        <Outlet />
+        <RootWrapper />
       </NavigateContext.Provider>
     )
   );
@@ -84,6 +82,10 @@ export const topLevelRoutes = [
       {
         path: '/redirect-proxy',
         lazy: () => import('@affine/core/desktop/pages/redirect'),
+      },
+      {
+        path: '/open-app/:action',
+        lazy: () => import('@affine/core/desktop/pages/open-app'),
       },
       {
         path: '*',

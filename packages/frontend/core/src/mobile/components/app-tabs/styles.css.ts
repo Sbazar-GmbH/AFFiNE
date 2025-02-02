@@ -1,17 +1,29 @@
 import { cssVarV2 } from '@toeverything/theme/v2';
-import { style } from '@vanilla-extract/css';
+import { createVar, style } from '@vanilla-extract/css';
 
 import { globalVars } from '../../styles/mobile.css';
 
+export const appTabsBackground = createVar('appTabsBackground');
+
 export const appTabs = style({
-  backgroundColor: cssVarV2('layer/background/secondary'),
-  borderTop: `1px solid ${cssVarV2('layer/insideBorder/border')}`,
+  vars: {
+    [appTabsBackground]: cssVarV2.layer.background.mobile.primary,
+  },
+  backgroundColor: appTabsBackground,
+  borderTop: `0.5px solid ${cssVarV2.layer.insideBorder.border}`,
 
   width: '100dvw',
 
-  position: 'fixed',
-  bottom: -2,
   zIndex: 1,
+
+  marginBottom: -2,
+  selectors: {
+    '&[data-fixed="true"]': {
+      position: 'fixed',
+      bottom: -2,
+      marginBottom: 0,
+    },
+  },
 });
 export const appTabsInner = style({
   display: 'flex',
@@ -31,12 +43,12 @@ export const tabItem = style({
   height: 36,
   padding: 3,
   fontSize: 30,
-  color: cssVarV2('icon/primary'),
+  color: cssVarV2.icon.primary,
   lineHeight: 0,
 
   selectors: {
     '&[data-active="true"]': {
-      color: cssVarV2('button/primary'),
+      color: cssVarV2.button.primary,
     },
   },
 });
